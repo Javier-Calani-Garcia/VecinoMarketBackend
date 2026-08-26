@@ -125,8 +125,40 @@ COMPRADORES = [
 ]
 
 
-def img_url(seed):
-    return f'https://picsum.photos/seed/vecinomarket-{seed}/600/600'
+# Palabras clave verificadas manualmente (ver Frontend/frontend_web/src/data
+# antes de que se reemplazara por la API real): loremflickr.com filtra fotos
+# de Flickr por estas palabras, a diferencia de picsum.photos que da fotos
+# totalmente al azar sin relación con el producto. El `lock=1` fija siempre
+# la misma foto revisada en vez de una nueva al azar en cada corrida.
+IMAGEN_KEYWORDS = {
+    'Pan integral artesanal (bolsa x6)': 'wholewheat,bread,loaf',
+    'Empanadas de queso (docena)': 'empanada,pastry',
+    'Torta de chocolate (porción familiar)': 'cake,slice',
+    'Arroz integral (5kg)': 'rice,grain',
+    'Aceite de girasol (900ml)': 'cooking,oil,bottle',
+    'Café molido orgánico (500g)': 'roasted,coffee,beans',
+    'Chompa de alpaca unisex': 'wool,sweater',
+    'Gorro de lana tejido': 'winter,hat,knit',
+    'Polera de algodón orgánico': 'tshirt,cotton',
+    'Set de velas aromáticas (x3)': 'scented,candles',
+    'Maceta de cerámica pintada a mano': 'clay,pot,painted',
+    'Tejido de tapiz andino (pequeño)': 'woven,tapestry,textile',
+    'Jabón artesanal de miel y avena': 'olive,soap',
+    'Aceite esencial de eucalipto': 'eucalyptus,leaves',
+    'Funda protectora para laptop 15"': 'laptop,case',
+    'Audífonos inalámbricos': 'wireless,headphones',
+    'Cama para perro mediana': 'puppy,bed',
+    'Snacks naturales para gato (bolsa)': 'cat,food,treats',
+    'Set de destornilladores (12 piezas)': 'screwdriver,toolbox',
+    'Candado de seguridad reforzado': 'padlock',
+    'Rompecabezas de madera (100 piezas)': 'jigsaw,puzzle,wooden',
+    'Set de bloques de construcción': 'wooden,blocks,toy',
+}
+
+
+def img_url(nombre):
+    keyword = IMAGEN_KEYWORDS.get(nombre, 'shopping,product')
+    return f'https://loremflickr.com/600/600/{keyword}?lock=1'
 
 
 class Command(BaseCommand):
@@ -316,7 +348,7 @@ class Command(BaseCommand):
                 },
             )
             ProductoImagen.objects.get_or_create(
-                producto=producto, orden=1, defaults={'url': img_url(f'{slug}-{producto.id}')}
+                producto=producto, orden=1, defaults={'url': img_url(nombre)}
             )
             InventarioSucursal.objects.get_or_create(
                 producto=producto,
