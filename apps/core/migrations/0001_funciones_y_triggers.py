@@ -255,6 +255,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
+        ('core', '0000_postgis_extension'),
         ('usuarios', '0001_initial'),
         ('catalogo', '0002_initial'),
         ('inventario', '0002_initial'),

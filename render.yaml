@@ -1,0 +1,48 @@
+databases:
+  - name: vecinomarket-db
+    databaseName: vecinomarket
+    user: vecinomarket
+    plan: free
+
+services:
+  - type: web
+    name: vecinomarket-backend
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: vecinomarket-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.prod
+      # No hace falta declarar ALLOWED_HOSTS: prod.py agrega automáticamente
+      # el hostname *.onrender.com del propio servicio (RENDER_EXTERNAL_HOSTNAME).
+      # Solo hace falta si más adelante se usa un dominio propio.
+      - key: ALLOWED_HOSTS
+        sync: false
+      # URL del frontend desplegado (Static Site en Render), sin barra final.
+      # Ej: https://vecinomarket.onrender.com
+      - key: FRONTEND_URL
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: CSRF_TRUSTED_ORIGINS
+        sync: false
+      # Gmail para recuperación de contraseña (opcional: sin esto, los
+      # correos solo quedan en los logs del servicio, no se envían).
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        sync: false
+      # Login con Google y reCAPTCHA (opcionales: si se dejan vacíos, esas
+      # dos validaciones quedan desactivadas en vez de romper el deploy).
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: RECAPTCHA_SECRET_KEY
+        sync: false

@@ -14,6 +14,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ('auth', '0012_alter_user_first_name_max_length'),
         ('suscripciones', '0001_initial'),
+        ('core', '0000_postgis_extension'),
     ]
 
     operations = [
