@@ -12,7 +12,7 @@ class Command(BaseCommand):
         parser.add_argument('--nombre', default='Superadmin')
 
     def handle(self, *args, **options):
-        if Usuario.objects.filter(rol=Usuario.Rol.SUPERADMIN).exists():
+        if Usuario.objects.filter(rol=Usuario.Rol.ADMIN).exists():
             self.stdout.write(self.style.WARNING('Ya existe un superadministrador. No se creó otro.'))
             return
 

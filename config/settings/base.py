@@ -1,3 +1,4 @@
+import platform
 from datetime import timedelta
 from pathlib import Path
 
@@ -14,6 +15,13 @@ SECRET_KEY = env('SECRET_KEY', default='django-insecure-cambia-esta-clave')
 DEBUG = env.bool('DEBUG', default=False)
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'])
 
+# GeoDjango (PostGIS) necesita ubicar las DLLs de GDAL/GEOS en Windows;
+# en Linux/Mac las encuentra solo en el path de librerías del sistema.
+if platform.system() == 'Windows':
+    _PG_BIN = env('PG_BIN_PATH', default=r'C:\Program Files\PostgreSQL\16\bin')
+    GDAL_LIBRARY_PATH = env('GDAL_LIBRARY_PATH', default=rf'{_PG_BIN}\libgdal-35.dll')
+    GEOS_LIBRARY_PATH = env('GEOS_LIBRARY_PATH', default=rf'{_PG_BIN}\libgeos_c.dll')
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -21,6 +29,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.gis',
 
     'rest_framework',
     'corsheaders',
@@ -79,6 +88,7 @@ DATABASES = {
         default='postgres://vecinomarket:password@localhost:5432/vecinomarket',
     )
 }
+DATABASES['default']['ENGINE'] = 'django.contrib.gis.db.backends.postgis'
 
 AUTH_USER_MODEL = 'usuarios.Usuario'
 
@@ -130,3 +140,38 @@ SIMPLE_JWT = {
 # CORS (ajustar dominios reales del frontend web/móvil en prod.py)
 # ---------------------------------------------------------------------------
 CORS_ALLOW_ALL_ORIGINS = env.bool('CORS_ALLOW_ALL_ORIGINS', default=True)
+
+# ---------------------------------------------------------------------------
+# Email (recuperación de contraseña, CU/T010). Vía Gmail SMTP con contraseña
+# de aplicación. En un entorno sin EMAIL_HOST_USER configurado, cae al
+# backend de consola (imprime el correo en la terminal en vez de enviarlo).
+# ---------------------------------------------------------------------------
+EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
+
+if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_HOST = env('EMAIL_HOST', default='smtp.gmail.com')
+    EMAIL_PORT = env.int('EMAIL_PORT', default=587)
+    EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS', default=True)
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='VecinoMarket <no-reply@vecinomarket.bo>')
+
+# URL del frontend, para armar los links que van en los correos (reset de
+# contraseña, etc). En prod se sobreescribe con la URL real desplegada.
+FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:5173')
+
+# ---------------------------------------------------------------------------
+# Login con Google (Google Identity Services). El Client ID no es secreto
+# (también vive en el frontend), así que solo hace falta esta variable acá
+# para verificar la firma del ID token que manda el navegador.
+# ---------------------------------------------------------------------------
+GOOGLE_CLIENT_ID = env('GOOGLE_CLIENT_ID', default='')
+
+# ---------------------------------------------------------------------------
+# reCAPTCHA v2 ("no soy un robot") para login y registro. La clave secreta
+# se usa para verificar el token contra la API de Google (ver apps.core.utils).
+# ---------------------------------------------------------------------------
+RECAPTCHA_SECRET_KEY = env('RECAPTCHA_SECRET_KEY', default='')

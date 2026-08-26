@@ -2,29 +2,68 @@ from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from .views import (
+    AprobarSolicitudEmpresaView,
+    BloquearUsuarioView,
+    CambiarPasswordView,
+    ConfirmarResetPasswordView,
     CrearEmpleadoView,
-    CrearEmpresaView,
     DesactivarEmpleadoView,
+    DesbloquearUsuarioView,
+    EliminarRolBaseView,
+    GoogleAuthView,
+    ListaCrearRolBaseView,
     ListaEmpleadosView,
-    ListaEmpresasView,
+    ListaEmpresasAdminView,
+    ListaPermisosView,
+    ListaSolicitudesEmpresaView,
+    ListaUsuariosView,
     LoginView,
+    LogoutView,
     PerfilView,
+    PermisoRolBaseView,
     ReactivarEmpleadoView,
-    RegistroClienteView,
+    ReactivarEmpresaView,
+    RechazarSolicitudEmpresaView,
+    RegistroCompradorView,
+    SolicitarEmpresaView,
+    SolicitarResetPasswordView,
+    SuspenderEmpresaView,
 )
 
 urlpatterns = [
     path('auth/login/', LoginView.as_view(), name='login'),
+    path('auth/google/', GoogleAuthView.as_view(), name='google_auth'),
     path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('auth/logout/', LogoutView.as_view(), name='logout'),
     path('auth/perfil/', PerfilView.as_view(), name='perfil'),
+    path('auth/cambiar-password/', CambiarPasswordView.as_view(), name='cambiar_password'),
+    path('auth/solicitar-reset/', SolicitarResetPasswordView.as_view(), name='solicitar_reset_password'),
+    path('auth/confirmar-reset/', ConfirmarResetPasswordView.as_view(), name='confirmar_reset_password'),
 
-    path('empresas/', CrearEmpresaView.as_view(), name='crear_empresa'),
-    path('empresas/lista/', ListaEmpresasView.as_view(), name='lista_empresas'),
+    path('solicitudes-empresa/', SolicitarEmpresaView.as_view(), name='solicitar_empresa'),
+    path('solicitudes-empresa/lista/', ListaSolicitudesEmpresaView.as_view(), name='lista_solicitudes_empresa'),
+    path('solicitudes-empresa/<int:solicitud_id>/aprobar/', AprobarSolicitudEmpresaView.as_view(), name='aprobar_solicitud_empresa'),
+    path('solicitudes-empresa/<int:solicitud_id>/rechazar/', RechazarSolicitudEmpresaView.as_view(), name='rechazar_solicitud_empresa'),
 
     path('empleados/', CrearEmpleadoView.as_view(), name='crear_empleado'),
     path('empleados/lista/', ListaEmpleadosView.as_view(), name='lista_empleados'),
     path('empleados/<int:empleado_id>/desactivar/', DesactivarEmpleadoView.as_view(), name='desactivar_empleado'),
     path('empleados/<int:empleado_id>/reactivar/', ReactivarEmpleadoView.as_view(), name='reactivar_empleado'),
 
-    path('clientes/registro/', RegistroClienteView.as_view(), name='registro_cliente'),
+    path('compradores/registro/', RegistroCompradorView.as_view(), name='registro_comprador'),
+
+    # T009 (RF01/RF02): gestión de usuarios y empresas — ADMIN
+    path('lista/', ListaUsuariosView.as_view(), name='lista_usuarios'),
+    path('<int:usuario_id>/bloquear/', BloquearUsuarioView.as_view(), name='bloquear_usuario'),
+    path('<int:usuario_id>/desbloquear/', DesbloquearUsuarioView.as_view(), name='desbloquear_usuario'),
+
+    path('empresas/lista/', ListaEmpresasAdminView.as_view(), name='lista_empresas_admin'),
+    path('empresas/<int:empresa_id>/suspender/', SuspenderEmpresaView.as_view(), name='suspender_empresa'),
+    path('empresas/<int:empresa_id>/reactivar/', ReactivarEmpresaView.as_view(), name='reactivar_empresa'),
+
+    # T054/T055 (RF53/RF54): roles administrativos globales y permisos base
+    path('permisos/', ListaPermisosView.as_view(), name='lista_permisos'),
+    path('roles-base/', ListaCrearRolBaseView.as_view(), name='lista_crear_rol_base'),
+    path('roles-base/<int:rol_id>/', EliminarRolBaseView.as_view(), name='eliminar_rol_base'),
+    path('roles-base/<int:rol_id>/permisos/<int:permiso_id>/', PermisoRolBaseView.as_view(), name='permiso_rol_base'),
 ]

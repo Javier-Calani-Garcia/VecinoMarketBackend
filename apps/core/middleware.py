@@ -12,6 +12,8 @@ class TenantContextMiddleware:
     def __call__(self, request):
         request.tenant = None
         user = getattr(request, 'user', None)
-        if user is not None and user.is_authenticated and getattr(user, 'empresa_id', None):
-            request.tenant = user.empresa_id
+        if user is not None and user.is_authenticated:
+            empresa = user.get_empresa()
+            if empresa:
+                request.tenant = empresa.id
         return self.get_response(request)

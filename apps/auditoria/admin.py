@@ -5,9 +5,9 @@ from .models import LogAuditoria
 
 @admin.register(LogAuditoria)
 class LogAuditoriaAdmin(admin.ModelAdmin):
-    list_display = ('accion', 'usuario', 'empresa', 'objeto_id', 'ip', 'creado_en')
-    list_filter = ('accion', 'empresa')
-    search_fields = ('usuario__email', 'objeto_id')
+    list_display = ('accion', 'usuario', 'entidad_afectada', 'entidad_id', 'ip_origen', 'creado_en')
+    list_filter = ('accion', 'entidad_afectada')
+    search_fields = ('usuario__email', 'entidad_afectada')
     readonly_fields = [f.name for f in LogAuditoria._meta.fields]
 
     def has_add_permission(self, request):
