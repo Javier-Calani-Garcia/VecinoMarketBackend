@@ -29,7 +29,7 @@ class LoginSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         token = attrs.pop('recaptcha_token', '')
         try:
-            verificar_recaptcha(token)
+            verificar_recaptcha(token, request=self.context.get('request'))
         except RecaptchaError as error:
             raise serializers.ValidationError({'recaptcha_token': str(error)})
 
@@ -138,7 +138,7 @@ class RegistroCompradorSerializer(serializers.Serializer):
     def validate(self, attrs):
         token = attrs.pop('recaptcha_token', '')
         try:
-            verificar_recaptcha(token)
+            verificar_recaptcha(token, request=self.context.get('request'))
         except RecaptchaError as error:
             raise serializers.ValidationError({'recaptcha_token': str(error)})
         return attrs

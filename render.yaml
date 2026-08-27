@@ -46,3 +46,8 @@ services:
         sync: false
       - key: RECAPTCHA_SECRET_KEY
         sync: false
+      # Mismo valor que MOBILE_APP_SECRET en Backend/.env y el que se
+      # compila dentro de la app Flutter (--dart-define). Si no coinciden,
+      # la app no puede saltar el reCAPTCHA y el login/registro le falla.
+      - key: MOBILE_APP_SECRET
+        sync: false
