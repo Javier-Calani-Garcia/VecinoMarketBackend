@@ -18,12 +18,13 @@ from apps.core.utils import get_client_ip
 from apps.suscripciones.models import Suscripcion
 
 from .models import Empleado, EmpleadoPermiso, Empresa, Permiso, RolBase, RolBasePermiso, SolicitudEmpresa, Usuario
-from .permissions import EsAdmin, EsEmpresa
+from .permissions import EsAdmin, EsEmpresa, EsSuperAdmin
 from .serializers import (
     ActualizarPerfilAdminSerializer,
     ActualizarPerfilSerializer,
     AprobarSolicitudSerializer,
     CambiarPasswordSerializer,
+    CambiarRolSerializer,
     ConfirmarResetPasswordSerializer,
     CrearEmpleadoSerializer,
     EditarEmpresaAdminSerializer,
@@ -358,7 +359,7 @@ class PerfilView(APIView):
 
     def patch(self, request):
         serializer_class = (
-            ActualizarPerfilAdminSerializer if request.user.rol == Usuario.Rol.ADMIN else ActualizarPerfilSerializer
+            ActualizarPerfilAdminSerializer if request.user.es_admin() else ActualizarPerfilSerializer
         )
         serializer = serializer_class(request.user, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -454,13 +455,20 @@ class ListaUsuariosView(ListAPIView):
 
 
 class EditarUsuarioAdminView(APIView):
-    """CU02/CU03: el SuperAdmin edita cualquier dato de cualquier usuario
-    (email, nombre, apellido, teléfono, rol, estado)."""
+    """CU02/CU03: el personal de la plataforma edita datos (email, nombre,
+    apellido, teléfono, estado) de cualquier usuario. El rol NO se toca acá
+    — eso es CU24 (CambiarRolUsuarioView), exclusivo del SuperAdmin. Un
+    ADMIN de soporte tampoco puede editar a un SUPERADMIN."""
 
     permission_classes = [EsAdmin]
 
     def patch(self, request, usuario_id):
         usuario_obj = get_object_or_404(Usuario, id=usuario_id)
+        if usuario_obj.es_superadmin() and not request.user.es_superadmin():
+            return Response(
+                {'detail': 'No puedes editar a un Super administrador.'}, status=status.HTTP_403_FORBIDDEN
+            )
+
         serializer = EditarUsuarioAdminSerializer(usuario_obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -470,9 +478,11 @@ class EditarUsuarioAdminView(APIView):
 
 
 class RestablecerPasswordAdminView(APIView):
-    """CU03: el SuperAdmin restablece la contraseña de cualquier usuario."""
+    """CU03: el SuperAdmin restablece la contraseña de cualquier usuario.
+    Exclusivo de SUPERADMIN: un ADMIN de soporte no debe poder tomar el
+    control de ninguna cuenta (ni siquiera de otro ADMIN)."""
 
-    permission_classes = [EsAdmin]
+    permission_classes = [EsSuperAdmin]
 
     def post(self, request, usuario_id):
         usuario_obj = get_object_or_404(Usuario, id=usuario_id)
@@ -484,6 +494,29 @@ class RestablecerPasswordAdminView(APIView):
         return Response({'detail': 'Contraseña restablecida.'})
 
 
+class CambiarRolUsuarioView(APIView):
+    """CU24: el SuperAdmin cambia el rol de cualquier usuario. Exclusivo de
+    SUPERADMIN — si un ADMIN de soporte pudiera hacerlo, podría ascenderse
+    a sí mismo (o a cualquiera) a SUPERADMIN. Queda registrado en la
+    bitácora desde Python (con quién lo hizo) y también vía
+    trg_registrar_cambio_rol en la base de datos (red de seguridad para
+    cambios hechos fuera de la app)."""
+
+    permission_classes = [EsSuperAdmin]
+
+    def post(self, request, usuario_id):
+        usuario_obj = get_object_or_404(Usuario, id=usuario_id)
+        serializer = CambiarRolSerializer(data=request.data, context={'usuario': usuario_obj})
+        serializer.is_valid(raise_exception=True)
+        usuario_obj, rol_anterior = serializer.save()
+
+        _log(
+            request, 'CAMBIAR_ROL_USUARIO', 'usuario', usuario_obj.id,
+            detalle={'rol_anterior': rol_anterior, 'rol_nuevo': usuario_obj.rol},
+        )
+        return Response(UsuarioSerializer(usuario_obj).data)
+
+
 class BloquearUsuarioView(APIView):
     permission_classes = [EsAdmin]
 
@@ -492,6 +525,10 @@ class BloquearUsuarioView(APIView):
             return Response({'detail': 'No puedes bloquear tu propia cuenta.'}, status=status.HTTP_400_BAD_REQUEST)
 
         usuario = get_object_or_404(Usuario, id=usuario_id)
+        if usuario.es_superadmin() and not request.user.es_superadmin():
+            return Response(
+                {'detail': 'No puedes bloquear a un Super administrador.'}, status=status.HTTP_403_FORBIDDEN
+            )
         usuario.estado = Usuario.Estado.BLOQUEADO
         usuario.is_active = False
         usuario.save(update_fields=['estado', 'is_active'])
@@ -619,9 +656,9 @@ class ListaPermisosView(ListAPIView):
 
 
 class ListaCrearRolBaseView(ListCreateAPIView):
-    """T054: el ADMIN crea y lista los roles base de la plataforma."""
+    """T054: el SUPERADMIN crea y lista los roles base de la plataforma."""
 
-    permission_classes = [EsAdmin]
+    permission_classes = [EsSuperAdmin]
     serializer_class = RolBaseSerializer
     pagination_class = None
     queryset = RolBase.objects.all().order_by('nombre')
@@ -632,7 +669,7 @@ class ListaCrearRolBaseView(ListCreateAPIView):
 
 
 class EliminarRolBaseView(APIView):
-    permission_classes = [EsAdmin]
+    permission_classes = [EsSuperAdmin]
 
     def delete(self, request, rol_id):
         rol = get_object_or_404(RolBase, id=rol_id)
@@ -644,7 +681,7 @@ class EliminarRolBaseView(APIView):
 class PermisoRolBaseView(APIView):
     """T055: asigna (POST) o quita (DELETE) un permiso del catálogo a un rol base."""
 
-    permission_classes = [EsAdmin]
+    permission_classes = [EsSuperAdmin]
 
     def post(self, request, rol_id, permiso_id):
         rol = get_object_or_404(RolBase, id=rol_id)

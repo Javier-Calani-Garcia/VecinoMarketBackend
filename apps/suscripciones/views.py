@@ -7,7 +7,7 @@ from rest_framework.views import APIView
 from apps.auditoria.models import LogAuditoria
 from apps.core.utils import get_client_ip
 from apps.usuarios.models import Empresa
-from apps.usuarios.permissions import EsAdmin
+from apps.usuarios.permissions import EsSuperAdmin
 
 from .models import Plan
 from .serializers import EditarSuscripcionSerializer, PlanSerializer
@@ -16,7 +16,7 @@ from .serializers import EditarSuscripcionSerializer, PlanSerializer
 class ListaPlanesView(ListAPIView):
     """CU01/CU20: planes activos disponibles para asignar a una empresa."""
 
-    permission_classes = [EsAdmin]
+    permission_classes = [EsSuperAdmin]
     serializer_class = PlanSerializer
     queryset = Plan.objects.filter(estado=Plan.Estado.ACTIVO).order_by('precio_mensual')
 
@@ -25,7 +25,7 @@ class EditarSuscripcionEmpresaView(APIView):
     """CU01: asigna o edita la suscripción vigente de una empresa (plan y
     fecha de vencimiento exacta)."""
 
-    permission_classes = [EsAdmin]
+    permission_classes = [EsSuperAdmin]
 
     def post(self, request, empresa_id):
         empresa = get_object_or_404(Empresa, id=empresa_id)
@@ -54,7 +54,7 @@ class ExpirarSuscripcionesView(APIView):
     que corre el comando `expirar_suscripciones` y cada vez que el admin abre
     el listado de empresas), por si se quiere forzar el refresco desde la UI."""
 
-    permission_classes = [EsAdmin]
+    permission_classes = [EsSuperAdmin]
 
     def post(self, request):
         with connection.cursor() as cursor:

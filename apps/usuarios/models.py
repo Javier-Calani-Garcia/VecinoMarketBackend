@@ -8,7 +8,8 @@ from .managers import UsuarioManager
 
 class Usuario(AbstractBaseUser, PermissionsMixin):
     class Rol(models.TextChoices):
-        ADMIN = 'ADMIN', 'Administrador de la plataforma'
+        SUPERADMIN = 'SUPERADMIN', 'Super administrador'
+        ADMIN = 'ADMIN', 'Administrador de soporte'
         EMPRESA = 'EMPRESA', 'Empresa'
         EMPLEADO = 'EMPLEADO', 'Empleado'
         COMPRADOR = 'COMPRADOR', 'Comprador'
@@ -42,7 +43,12 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
         return f'{self.nombre} ({self.get_rol_display()})'
 
     def es_admin(self):
-        return self.rol == self.Rol.ADMIN
+        """Personal de la plataforma (soporte o dueño). Para acciones
+        exclusivas del dueño, usar es_superadmin()."""
+        return self.rol in (self.Rol.ADMIN, self.Rol.SUPERADMIN)
+
+    def es_superadmin(self):
+        return self.rol == self.Rol.SUPERADMIN
 
     def es_empresa(self):
         return self.rol == self.Rol.EMPRESA
@@ -54,7 +60,7 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
         return self.rol == self.Rol.COMPRADOR
 
     def get_empresa(self):
-        """Empresa (tenant) asociada, según el rol. None para ADMIN y COMPRADOR."""
+        """Empresa (tenant) asociada, según el rol. None para SUPERADMIN, ADMIN y COMPRADOR."""
         if self.rol == self.Rol.EMPRESA:
             return getattr(self, 'empresa', None)
         if self.rol == self.Rol.EMPLEADO:

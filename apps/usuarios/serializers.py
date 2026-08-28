@@ -218,13 +218,14 @@ class ActualizarPerfilAdminSerializer(serializers.ModelSerializer):
 
 
 class EditarUsuarioAdminSerializer(serializers.ModelSerializer):
-    """CU02/CU03: el SuperAdmin puede editar cualquier dato de cualquier
+    """CU02/CU03: el personal de la plataforma edita datos de cualquier
     usuario (a diferencia de ActualizarPerfilSerializer, que es el propio
-    usuario editando solo lo suyo)."""
+    usuario editando solo lo suyo). El rol NO se edita acá a propósito —
+    eso es CU24 (CambiarRolSerializer), exclusivo del SuperAdmin."""
 
     class Meta:
         model = Usuario
-        fields = ['email', 'nombre', 'apellido', 'telefono', 'rol', 'estado']
+        fields = ['email', 'nombre', 'apellido', 'telefono', 'estado']
 
     def validate_email(self, value):
         if Usuario.objects.exclude(id=self.instance.id).filter(email=value).exists():
@@ -244,6 +245,23 @@ class RestablecerPasswordAdminSerializer(serializers.Serializer):
         usuario.set_password(self.validated_data['password_nueva'])
         usuario.save(update_fields=['password'])
         return usuario
+
+
+class CambiarRolSerializer(serializers.Serializer):
+    """CU24: el SuperAdmin cambia el rol de un usuario (ADMIN/EMPRESA/
+    EMPLEADO/COMPRADOR). Acción dedicada y auditada aparte de la edición
+    general de datos (EditarUsuarioAdminSerializer), porque cambiar el rol
+    es una operación sensible con su propio trigger de base de datos
+    (trg_registrar_cambio_rol)."""
+
+    rol = serializers.ChoiceField(choices=Usuario.Rol.choices)
+
+    def save(self):
+        usuario = self.context['usuario']
+        rol_anterior = usuario.rol
+        usuario.rol = self.validated_data['rol']
+        usuario.save(update_fields=['rol'])
+        return usuario, rol_anterior
 
 
 class EditarEmpresaAdminSerializer(serializers.ModelSerializer):

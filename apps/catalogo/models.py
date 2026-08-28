@@ -59,7 +59,11 @@ class Producto(TenantModel):
 
 class ProductoImagen(models.Model):
     producto = models.ForeignKey(Producto, on_delete=models.CASCADE, related_name='imagenes')
-    url = models.URLField(max_length=255)
+    # Una imagen viene de una de las dos: un archivo subido (a Cloudinary en
+    # producción, CU07) o una URL externa pegada a mano. url_efectiva()
+    # decide cuál mostrar.
+    archivo = models.ImageField(upload_to='productos/', blank=True, null=True)
+    url = models.URLField(max_length=255, blank=True)
     orden = models.PositiveSmallIntegerField(default=1)
 
     class Meta:
@@ -69,6 +73,10 @@ class ProductoImagen(models.Model):
 
     def __str__(self):
         return f'{self.producto.nombre} #{self.orden}'
+
+    @property
+    def url_efectiva(self):
+        return self.archivo.url if self.archivo else self.url
 
 
 class CategorizacionIALog(models.Model):

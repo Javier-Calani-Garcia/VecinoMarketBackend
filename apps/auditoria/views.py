@@ -1,7 +1,7 @@
 from rest_framework.generics import ListAPIView
 from rest_framework.pagination import PageNumberPagination
 
-from apps.usuarios.permissions import EsAdmin
+from apps.usuarios.permissions import EsSuperAdmin
 
 from .models import LogAuditoria
 from .serializers import LogAuditoriaSerializer
@@ -14,9 +14,9 @@ class BitacoraPagination(PageNumberPagination):
 
 
 class BitacoraView(ListAPIView):
-    """CU22: bitácora de accesos y acciones críticas, solo para el ADMIN de la plataforma."""
+    """CU22: bitácora de accesos y acciones críticas, exclusiva del SUPERADMIN."""
 
-    permission_classes = [EsAdmin]
+    permission_classes = [EsSuperAdmin]
     serializer_class = LogAuditoriaSerializer
     pagination_class = BitacoraPagination
 

@@ -51,3 +51,12 @@ services:
       # la app no puede saltar el reCAPTCHA y el login/registro le falla.
       - key: MOBILE_APP_SECRET
         sync: false
+      # Cloudinary (CU07): imágenes subidas por el admin/las empresas. Sin
+      # esto, el storage cae a disco local — que Render borra en cada
+      # redeploy. Sacar las 3 del dashboard de cloudinary.com.
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false

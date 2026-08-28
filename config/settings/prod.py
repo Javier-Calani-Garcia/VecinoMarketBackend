@@ -30,7 +30,8 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 # Archivos estáticos (admin de Django, DRF browsable API) servidos directo
 # por la app vía whitenoise, sin necesidad de un servidor/CDN aparte.
 MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')  # noqa: F405
-STORAGES = {
-    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
-    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
-}
+# 'default' (media/imágenes subidas) ya quedó en Cloudinary desde base.py si
+# las 3 variables CLOUDINARY_* están configuradas — acá solo se pisa
+# 'staticfiles' por whitenoise. Si Cloudinary no está configurado, cae al
+# FileSystemStorage por defecto de Django (disco efímero de Render).
+STORAGES['staticfiles'] = {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'}  # noqa: F405

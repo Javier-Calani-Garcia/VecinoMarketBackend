@@ -28,7 +28,9 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
+    'cloudinary_storage',
     'django.contrib.staticfiles',
+    'cloudinary',
     'django.contrib.gis',
 
     'rest_framework',
@@ -110,6 +112,24 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# Imágenes subidas por el admin/las empresas (CU07): Cloudinary, no el disco
+# local — en Render el disco es efímero y se pierde en cada redeploy. Si las
+# 3 variables no están configuradas, queda el storage local (sirve para
+# desarrollar sin cuenta de Cloudinary, pero no persiste en producción).
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': env('CLOUDINARY_CLOUD_NAME', default=''),
+    'API_KEY': env('CLOUDINARY_API_KEY', default=''),
+    'API_SECRET': env('CLOUDINARY_API_SECRET', default=''),
+}
+STORAGES = {
+    'default': {
+        'BACKEND': 'cloudinary_storage.storage.MediaCloudinaryStorage'
+        if CLOUDINARY_STORAGE['CLOUD_NAME']
+        else 'django.core.files.storage.FileSystemStorage'
+    },
+    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+}
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

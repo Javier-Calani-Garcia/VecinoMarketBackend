@@ -2,11 +2,25 @@ from rest_framework.permissions import BasePermission
 
 
 class EsAdmin(BasePermission):
-    message = 'Solo el administrador de la plataforma puede realizar esta acción.'
+    """Personal de la plataforma: soporte (ADMIN) o dueño (SUPERADMIN)."""
+
+    message = 'Solo el personal de la plataforma puede realizar esta acción.'
 
     def has_permission(self, request, view):
         user = request.user
         return bool(user and user.is_authenticated and user.es_admin())
+
+
+class EsSuperAdmin(BasePermission):
+    """Solo el dueño de la plataforma (SUPERADMIN) — acciones sensibles:
+    cambiar roles, restablecer contraseñas ajenas, catálogo de roles/permisos
+    base, planes/suscripciones y la bitácora completa."""
+
+    message = 'Solo el super administrador puede realizar esta acción.'
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and user.es_superadmin())
 
 
 class EsEmpresa(BasePermission):
