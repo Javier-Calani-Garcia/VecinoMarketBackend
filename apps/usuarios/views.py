@@ -1,5 +1,7 @@
-from django.db.models import Q
+from django.db import connection
+from django.db.models import OuterRef, Q, Subquery
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.generics import CreateAPIView, ListAPIView, ListCreateAPIView
 from rest_framework.pagination import PageNumberPagination
@@ -13,6 +15,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 
 from apps.auditoria.models import LogAuditoria
 from apps.core.utils import get_client_ip
+from apps.suscripciones.models import Suscripcion
 
 from .models import Empleado, Empresa, Permiso, RolBase, RolBasePermiso, SolicitudEmpresa, Usuario
 from .permissions import EsAdmin, EsEmpresa
@@ -370,18 +373,47 @@ class DesbloquearUsuarioView(APIView):
 
 
 class ListaEmpresasAdminView(ListAPIView):
-    """El ADMIN ve y filtra todas las empresas (no solo las solicitudes pendientes)."""
+    """CU01: el ADMIN ve y filtra todas las empresas (no solo las solicitudes
+    pendientes), incluyendo el estado de su suscripción (activa / solicitando
+    suscripción / expirada)."""
 
     permission_classes = [EsAdmin]
     serializer_class = EmpresaAdminSerializer
     pagination_class = AdminPagination
 
     def get_queryset(self):
-        queryset = Empresa.objects.select_related('usuario_dueno').order_by('-creado_en')
+        # Antes de listar, refresca cualquier suscripción que ya venció (lo
+        # mismo que hace el comando `expirar_suscripciones`), así el admin
+        # nunca ve una empresa como "activa" con una fecha ya pasada.
+        with connection.cursor() as cursor:
+            cursor.execute('CALL sp_expirar_suscripciones_vencidas();')
+
+        ultima_suscripcion = Suscripcion.objects.filter(empresa=OuterRef('pk')).order_by('-fecha_vencimiento')
+        queryset = (
+            Empresa.objects.select_related('usuario_dueno', 'plan')
+            .annotate(
+                _susc_estado=Subquery(ultima_suscripcion.values('estado')[:1]),
+                _susc_vencimiento=Subquery(ultima_suscripcion.values('fecha_vencimiento')[:1]),
+            )
+            .order_by('-creado_en')
+        )
 
         estado = self.request.query_params.get('estado')
         if estado:
             queryset = queryset.filter(estado=estado)
+
+        hoy = timezone.now().date()
+        estado_suscripcion = self.request.query_params.get('estado_suscripcion')
+        if estado_suscripcion == 'SOLICITANDO_SUSCRIPCION':
+            queryset = queryset.filter(Q(plan__isnull=True) | Q(_susc_vencimiento__isnull=True))
+        elif estado_suscripcion == 'ACTIVA':
+            queryset = queryset.filter(
+                plan__isnull=False, _susc_estado=Suscripcion.Estado.ACTIVA, _susc_vencimiento__gte=hoy
+            )
+        elif estado_suscripcion == 'EXPIRADA':
+            queryset = queryset.filter(plan__isnull=False, _susc_vencimiento__isnull=False).exclude(
+                _susc_estado=Suscripcion.Estado.ACTIVA, _susc_vencimiento__gte=hoy
+            )
 
         q = self.request.query_params.get('q')
         if q:

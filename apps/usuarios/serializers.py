@@ -10,6 +10,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from apps.core.utils import RecaptchaError, verificar_recaptcha
+from apps.suscripciones.models import Suscripcion
 
 from .models import Comprador, Empleado, Empresa, Permiso, RolBase, SolicitudEmpresa, Usuario
 
@@ -254,18 +255,43 @@ class ConfirmarResetPasswordSerializer(serializers.Serializer):
 
 
 class EmpresaAdminSerializer(serializers.ModelSerializer):
-    """T009 (RF01/RF02): listado de empresas para el ADMIN de la plataforma."""
+    """CU01 (T009, RF01/RF02): listado de empresas para el ADMIN de la plataforma.
+
+    `estado_suscripcion` y `fecha_vencimiento` se calculan a partir de la
+    suscripción más reciente de la empresa, anotada por
+    ListaEmpresasAdminView en `_susc_estado` / `_susc_vencimiento` (evita un
+    N+1 por fila). Si el serializer se usa en otro contexto sin esa
+    anotación, se resuelve como "solicitando suscripción" por defecto.
+    """
 
     dueno_email = serializers.EmailField(source='usuario_dueno.email', read_only=True)
     dueno_nombre = serializers.CharField(source='usuario_dueno.nombre', read_only=True)
+    plan_nombre = serializers.CharField(source='plan.nombre', read_only=True, default=None)
+    estado_suscripcion = serializers.SerializerMethodField()
+    fecha_vencimiento = serializers.SerializerMethodField()
 
     class Meta:
         model = Empresa
         fields = [
             'id', 'razon_social', 'nit', 'slug', 'ciudad', 'departamento',
             'estado', 'dueno_email', 'dueno_nombre', 'creado_en',
+            'plan_nombre', 'estado_suscripcion', 'fecha_vencimiento',
         ]
         read_only_fields = fields
+
+    def get_estado_suscripcion(self, empresa):
+        if empresa.plan_id is None:
+            return 'SOLICITANDO_SUSCRIPCION'
+        vencimiento = getattr(empresa, '_susc_vencimiento', None)
+        if vencimiento is None:
+            return 'SOLICITANDO_SUSCRIPCION'
+        estado = getattr(empresa, '_susc_estado', None)
+        if estado != Suscripcion.Estado.ACTIVA or vencimiento < timezone.now().date():
+            return 'EXPIRADA'
+        return 'ACTIVA'
+
+    def get_fecha_vencimiento(self, empresa):
+        return getattr(empresa, '_susc_vencimiento', None)
 
 
 class PermisoSerializer(serializers.ModelSerializer):
