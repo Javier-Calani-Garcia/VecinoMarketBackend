@@ -10,7 +10,7 @@ from apps.usuarios.models import Empresa
 from apps.usuarios.permissions import EsAdmin
 
 from .models import Plan
-from .serializers import AsignarPlanSerializer, PlanSerializer
+from .serializers import EditarSuscripcionSerializer, PlanSerializer
 
 
 class ListaPlanesView(ListAPIView):
@@ -21,20 +21,21 @@ class ListaPlanesView(ListAPIView):
     queryset = Plan.objects.filter(estado=Plan.Estado.ACTIVO).order_by('precio_mensual')
 
 
-class AsignarPlanEmpresaView(APIView):
-    """CU01: asigna o renueva la suscripción de una empresa."""
+class EditarSuscripcionEmpresaView(APIView):
+    """CU01: asigna o edita la suscripción vigente de una empresa (plan y
+    fecha de vencimiento exacta)."""
 
     permission_classes = [EsAdmin]
 
     def post(self, request, empresa_id):
         empresa = get_object_or_404(Empresa, id=empresa_id)
-        serializer = AsignarPlanSerializer(data=request.data, context={'empresa': empresa})
+        serializer = EditarSuscripcionSerializer(data=request.data, context={'empresa': empresa})
         serializer.is_valid(raise_exception=True)
         suscripcion = serializer.save()
 
         LogAuditoria.objects.create(
             usuario=request.user,
-            accion='ASIGNAR_PLAN_EMPRESA',
+            accion='EDITAR_SUSCRIPCION_EMPRESA',
             entidad_afectada='empresa',
             entidad_id=empresa.id,
             detalle={
@@ -44,7 +45,7 @@ class AsignarPlanEmpresaView(APIView):
             ip_origen=get_client_ip(request),
         )
         return Response(
-            {'detail': 'Plan asignado.', 'fecha_vencimiento': suscripcion.fecha_vencimiento}
+            {'detail': 'Suscripción actualizada.', 'fecha_vencimiento': suscripcion.fecha_vencimiento}
         )
 
 

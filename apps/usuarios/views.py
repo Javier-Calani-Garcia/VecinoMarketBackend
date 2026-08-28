@@ -17,25 +17,37 @@ from apps.auditoria.models import LogAuditoria
 from apps.core.utils import get_client_ip
 from apps.suscripciones.models import Suscripcion
 
-from .models import Empleado, Empresa, Permiso, RolBase, RolBasePermiso, SolicitudEmpresa, Usuario
+from .models import Empleado, EmpleadoPermiso, Empresa, Permiso, RolBase, RolBasePermiso, SolicitudEmpresa, Usuario
 from .permissions import EsAdmin, EsEmpresa
 from .serializers import (
+    ActualizarPerfilAdminSerializer,
     ActualizarPerfilSerializer,
     AprobarSolicitudSerializer,
     CambiarPasswordSerializer,
     ConfirmarResetPasswordSerializer,
     CrearEmpleadoSerializer,
+    EditarEmpresaAdminSerializer,
+    EditarUsuarioAdminSerializer,
+    EmpleadoAdminSerializer,
     EmpresaAdminSerializer,
     GoogleAuthSerializer,
     LoginSerializer,
     PermisoSerializer,
     RechazarSolicitudSerializer,
+    RegistrarUsuarioAdminSerializer,
     RegistroCompradorSerializer,
+    RestablecerPasswordAdminSerializer,
     RolBaseSerializer,
     SolicitarResetPasswordSerializer,
     SolicitudEmpresaSerializer,
     UsuarioSerializer,
 )
+
+
+class AdminPagination(PageNumberPagination):
+    page_size = 30
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
 
 def _log(request, accion, entidad_afectada=None, entidad_id=None, detalle=None, usuario=None):
@@ -225,6 +237,94 @@ class ReactivarEmpleadoView(APIView):
         return Response({'detail': 'Empleado reactivado.'}, status=status.HTTP_200_OK)
 
 
+# =====================================================================
+# CU09: el SuperAdmin gestiona empleados de CUALQUIER empresa y sus
+# permisos (a diferencia de las vistas de arriba, que son la propia
+# empresa administrando solo lo suyo).
+# =====================================================================
+
+class ListaEmpleadosAdminView(ListAPIView):
+    permission_classes = [EsAdmin]
+    serializer_class = EmpleadoAdminSerializer
+    pagination_class = AdminPagination
+
+    def get_queryset(self):
+        queryset = Empleado.objects.select_related('usuario', 'empresa').order_by('-creado_en')
+
+        empresa_id = self.request.query_params.get('empresa')
+        if empresa_id:
+            queryset = queryset.filter(empresa_id=empresa_id)
+
+        estado = self.request.query_params.get('estado')
+        if estado:
+            queryset = queryset.filter(estado=estado)
+
+        q = self.request.query_params.get('q')
+        if q:
+            queryset = queryset.filter(
+                Q(usuario__nombre__icontains=q)
+                | Q(usuario__email__icontains=q)
+                | Q(empresa__razon_social__icontains=q)
+            )
+
+        return queryset
+
+
+class DesactivarEmpleadoAdminView(APIView):
+    permission_classes = [EsAdmin]
+
+    def post(self, request, empleado_id):
+        empleado = get_object_or_404(Empleado, id=empleado_id)
+
+        empleado.usuario.is_active = False
+        empleado.usuario.estado = Usuario.Estado.INACTIVO
+        empleado.usuario.save(update_fields=['is_active', 'estado'])
+        empleado.estado = Empleado.Estado.INACTIVO
+        empleado.save(update_fields=['estado'])
+
+        for token in OutstandingToken.objects.filter(user=empleado.usuario):
+            BlacklistedToken.objects.get_or_create(token=token)
+
+        _log(request, 'DESACTIVAR_EMPLEADO_ADMIN', 'empleado', empleado.id)
+        return Response({'detail': 'Empleado desactivado.'})
+
+
+class ReactivarEmpleadoAdminView(APIView):
+    permission_classes = [EsAdmin]
+
+    def post(self, request, empleado_id):
+        empleado = get_object_or_404(Empleado, id=empleado_id)
+
+        empleado.usuario.is_active = True
+        empleado.usuario.estado = Usuario.Estado.ACTIVO
+        empleado.usuario.save(update_fields=['is_active', 'estado'])
+        empleado.estado = Empleado.Estado.ACTIVO
+        empleado.save(update_fields=['estado'])
+
+        _log(request, 'REACTIVAR_EMPLEADO_ADMIN', 'empleado', empleado.id)
+        return Response({'detail': 'Empleado reactivado.'})
+
+
+class PermisoEmpleadoAdminView(APIView):
+    """CU09: asigna (POST) o quita (DELETE) un permiso del catálogo a un
+    empleado — define a qué partes del panel de su empresa tiene acceso."""
+
+    permission_classes = [EsAdmin]
+
+    def post(self, request, empleado_id, permiso_id):
+        empleado = get_object_or_404(Empleado, id=empleado_id)
+        permiso = get_object_or_404(Permiso, id=permiso_id)
+        EmpleadoPermiso.objects.get_or_create(empleado=empleado, permiso=permiso)
+        _log(request, 'ASIGNAR_PERMISO_EMPLEADO', 'empleado', empleado.id, detalle={'permiso': permiso.codigo})
+        return Response(EmpleadoAdminSerializer(empleado).data)
+
+    def delete(self, request, empleado_id, permiso_id):
+        empleado = get_object_or_404(Empleado, id=empleado_id)
+        EmpleadoPermiso.objects.filter(empleado_id=empleado_id, permiso_id=permiso_id).delete()
+        _log(request, 'QUITAR_PERMISO_EMPLEADO', 'empleado', empleado_id, detalle={'permiso_id': permiso_id})
+        return Response(EmpleadoAdminSerializer(empleado).data)
+
+
 class RegistroCompradorView(CreateAPIView):
     """Registro público: cualquiera puede crear su cuenta de comprador.
 
@@ -257,7 +357,10 @@ class PerfilView(APIView):
         return Response(UsuarioSerializer(request.user).data)
 
     def patch(self, request):
-        serializer = ActualizarPerfilSerializer(request.user, data=request.data, partial=True)
+        serializer_class = (
+            ActualizarPerfilAdminSerializer if request.user.rol == Usuario.Rol.ADMIN else ActualizarPerfilSerializer
+        )
+        serializer = serializer_class(request.user, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         _log(request, 'ACTUALIZAR_PERFIL', 'usuario', request.user.id)
@@ -309,10 +412,20 @@ class ConfirmarResetPasswordView(APIView):
 # T009 (RF01/RF02): gestión de usuarios y cuentas empresariales — ADMIN
 # =====================================================================
 
-class AdminPagination(PageNumberPagination):
-    page_size = 30
-    page_size_query_param = 'page_size'
-    max_page_size = 100
+
+class RegistrarUsuarioAdminView(CreateAPIView):
+    """CU02: el ADMIN registra un usuario (comprador) directamente desde su panel."""
+
+    permission_classes = [EsAdmin]
+    serializer_class = RegistrarUsuarioAdminSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        nuevo_usuario = serializer.save()
+
+        _log(request, 'REGISTRAR_USUARIO_ADMIN', 'usuario', nuevo_usuario.id)
+        return Response(UsuarioSerializer(nuevo_usuario).data, status=status.HTTP_201_CREATED)
 
 
 class ListaUsuariosView(ListAPIView):
@@ -338,6 +451,37 @@ class ListaUsuariosView(ListAPIView):
             queryset = queryset.filter(Q(email__icontains=q) | Q(nombre__icontains=q))
 
         return queryset
+
+
+class EditarUsuarioAdminView(APIView):
+    """CU02/CU03: el SuperAdmin edita cualquier dato de cualquier usuario
+    (email, nombre, apellido, teléfono, rol, estado)."""
+
+    permission_classes = [EsAdmin]
+
+    def patch(self, request, usuario_id):
+        usuario_obj = get_object_or_404(Usuario, id=usuario_id)
+        serializer = EditarUsuarioAdminSerializer(usuario_obj, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        _log(request, 'EDITAR_USUARIO_ADMIN', 'usuario', usuario_obj.id)
+        return Response(UsuarioSerializer(usuario_obj).data)
+
+
+class RestablecerPasswordAdminView(APIView):
+    """CU03: el SuperAdmin restablece la contraseña de cualquier usuario."""
+
+    permission_classes = [EsAdmin]
+
+    def post(self, request, usuario_id):
+        usuario_obj = get_object_or_404(Usuario, id=usuario_id)
+        serializer = RestablecerPasswordAdminSerializer(data=request.data, context={'usuario': usuario_obj})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        _log(request, 'RESTABLECER_PASSWORD_ADMIN', 'usuario', usuario_obj.id)
+        return Response({'detail': 'Contraseña restablecida.'})
 
 
 class BloquearUsuarioView(APIView):
@@ -420,6 +564,23 @@ class ListaEmpresasAdminView(ListAPIView):
             queryset = queryset.filter(Q(razon_social__icontains=q) | Q(nit__icontains=q))
 
         return queryset
+
+
+class EditarEmpresaAdminView(APIView):
+    """CU01: el SuperAdmin edita cualquier dato de la empresa."""
+
+    permission_classes = [EsAdmin]
+
+    def patch(self, request, empresa_id):
+        empresa = get_object_or_404(Empresa, id=empresa_id)
+        serializer = EditarEmpresaAdminSerializer(empresa, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        _log(request, 'EDITAR_EMPRESA_ADMIN', 'empresa', empresa.id)
+        # No se reusa EmpresaAdminSerializer: sus campos de suscripción
+        # dependen de la anotación que solo arma ListaEmpresasAdminView.
+        return Response(serializer.data)
 
 
 class SuspenderEmpresaView(APIView):

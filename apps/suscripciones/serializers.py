@@ -1,5 +1,3 @@
-from datetime import timedelta
-
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -30,29 +28,41 @@ class SuscripcionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class AsignarPlanSerializer(serializers.Serializer):
-    """CU01: el admin asigna (o renueva) el plan de una empresa, abriendo una
-    nueva suscripción ACTIVA a partir de hoy. Sirve tanto para la primera
-    asignación (empresa "solicitando suscripción") como para renovar una
-    suscripción expirada."""
+class EditarSuscripcionSerializer(serializers.Serializer):
+    """CU01: el admin edita la suscripción vigente de una empresa (plan y
+    fecha de vencimiento exacta). Si la empresa ya tiene una suscripción
+    (activa, expirada o recién asignada), se edita esa misma fila en vez de
+    acumular una nueva por cada cambio; si no tiene ninguna todavía (recién
+    aprobada, "solicitando suscripción"), se crea la primera."""
 
     plan_id = serializers.PrimaryKeyRelatedField(
         queryset=Plan.objects.filter(estado=Plan.Estado.ACTIVO), source='plan'
     )
-    dias = serializers.IntegerField(min_value=1, max_value=730, default=30, required=False)
+    fecha_vencimiento = serializers.DateField()
 
     def save(self):
         empresa = self.context['empresa']
         plan = self.validated_data['plan']
-        dias = self.validated_data.get('dias', 30)
+        fecha_vencimiento = self.validated_data['fecha_vencimiento']
         hoy = timezone.now().date()
 
-        suscripcion = Suscripcion.objects.create(
-            empresa=empresa,
-            plan=plan,
-            fecha_inicio=hoy,
-            fecha_vencimiento=hoy + timedelta(days=dias),
-        )
+        suscripcion = Suscripcion.objects.filter(empresa=empresa).order_by('-fecha_vencimiento').first()
+        nuevo_estado = Suscripcion.Estado.ACTIVA if fecha_vencimiento >= hoy else Suscripcion.Estado.VENCIDA
+
+        if suscripcion is None:
+            suscripcion = Suscripcion.objects.create(
+                empresa=empresa,
+                plan=plan,
+                fecha_inicio=hoy,
+                fecha_vencimiento=fecha_vencimiento,
+                estado=nuevo_estado,
+            )
+        else:
+            suscripcion.plan = plan
+            suscripcion.fecha_vencimiento = fecha_vencimiento
+            suscripcion.estado = nuevo_estado
+            suscripcion.save(update_fields=['plan', 'fecha_vencimiento', 'estado'])
+
         empresa.plan = plan
         empresa.save(update_fields=['plan'])
         return suscripcion

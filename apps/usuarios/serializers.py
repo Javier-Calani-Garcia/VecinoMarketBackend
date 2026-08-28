@@ -155,6 +155,32 @@ class RegistroCompradorSerializer(serializers.Serializer):
         return usuario
 
 
+class RegistrarUsuarioAdminSerializer(serializers.Serializer):
+    """CU02: el ADMIN registra una cuenta de comprador directamente desde su
+    panel (sin reCAPTCHA, ya viene autenticado como admin)."""
+
+    email = serializers.EmailField()
+    nombre = serializers.CharField(max_length=100)
+    apellido = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    telefono = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate_email(self, value):
+        if Usuario.objects.filter(email=value).exists():
+            raise serializers.ValidationError('Ya existe un usuario con ese email.')
+        return value
+
+    def create(self, validated_data):
+        password = validated_data.pop('password')
+        usuario = Usuario.objects.create_user(
+            password=password,
+            rol=Usuario.Rol.COMPRADOR,
+            **validated_data,
+        )
+        Comprador.objects.create(usuario=usuario)
+        return usuario
+
+
 class UsuarioSerializer(serializers.ModelSerializer):
     empresa_id = serializers.SerializerMethodField()
 
@@ -174,6 +200,67 @@ class ActualizarPerfilSerializer(serializers.ModelSerializer):
     class Meta:
         model = Usuario
         fields = ['nombre', 'apellido', 'telefono']
+
+
+class ActualizarPerfilAdminSerializer(serializers.ModelSerializer):
+    """CU03: el propio SuperAdmin editando SU perfil puede tocar también su
+    email (a diferencia de ActualizarPerfilSerializer, que es lo que usa
+    cualquier otro rol editando lo suyo)."""
+
+    class Meta:
+        model = Usuario
+        fields = ['email', 'nombre', 'apellido', 'telefono']
+
+    def validate_email(self, value):
+        if Usuario.objects.exclude(id=self.instance.id).filter(email=value).exists():
+            raise serializers.ValidationError('Ya existe un usuario con ese email.')
+        return value
+
+
+class EditarUsuarioAdminSerializer(serializers.ModelSerializer):
+    """CU02/CU03: el SuperAdmin puede editar cualquier dato de cualquier
+    usuario (a diferencia de ActualizarPerfilSerializer, que es el propio
+    usuario editando solo lo suyo)."""
+
+    class Meta:
+        model = Usuario
+        fields = ['email', 'nombre', 'apellido', 'telefono', 'rol', 'estado']
+
+    def validate_email(self, value):
+        if Usuario.objects.exclude(id=self.instance.id).filter(email=value).exists():
+            raise serializers.ValidationError('Ya existe un usuario con ese email.')
+        return value
+
+
+class RestablecerPasswordAdminSerializer(serializers.Serializer):
+    """CU03: el SuperAdmin cambia la contraseña de cualquier usuario, sin
+    necesitar la actual (a diferencia de CambiarPasswordSerializer, que es
+    el propio usuario cambiando la suya)."""
+
+    password_nueva = serializers.CharField(write_only=True, min_length=8)
+
+    def save(self):
+        usuario = self.context['usuario']
+        usuario.set_password(self.validated_data['password_nueva'])
+        usuario.save(update_fields=['password'])
+        return usuario
+
+
+class EditarEmpresaAdminSerializer(serializers.ModelSerializer):
+    """CU01: el SuperAdmin puede editar cualquier dato de la empresa (antes
+    solo se podía suspender/reactivar)."""
+
+    class Meta:
+        model = Empresa
+        fields = [
+            'razon_social', 'nit', 'slug', 'logo_url', 'color_marca',
+            'descripcion', 'departamento', 'ciudad', 'estado',
+        ]
+
+    def validate_slug(self, value):
+        if Empresa.objects.exclude(id=self.instance.id).filter(slug=value).exists():
+            raise serializers.ValidationError('Ya existe una empresa con ese slug.')
+        return value
 
 
 class CambiarPasswordSerializer(serializers.Serializer):
@@ -274,7 +361,7 @@ class EmpresaAdminSerializer(serializers.ModelSerializer):
         model = Empresa
         fields = [
             'id', 'razon_social', 'nit', 'slug', 'ciudad', 'departamento',
-            'estado', 'dueno_email', 'dueno_nombre', 'creado_en',
+            'estado', 'dueno_email', 'dueno_nombre', 'creado_en', 'plan',
             'plan_nombre', 'estado_suscripcion', 'fecha_vencimiento',
         ]
         read_only_fields = fields
@@ -313,6 +400,24 @@ class RolBaseSerializer(serializers.ModelSerializer):
 
     def get_permisos(self, obj):
         return PermisoSerializer([rp.permiso for rp in obj.permisos.select_related('permiso')], many=True).data
+
+
+class EmpleadoAdminSerializer(serializers.ModelSerializer):
+    """CU09: el SuperAdmin ve a todos los empleados de la plataforma (de
+    cualquier empresa) y qué permisos tiene cada cuenta."""
+
+    usuario_nombre = serializers.CharField(source='usuario.nombre', read_only=True)
+    usuario_email = serializers.EmailField(source='usuario.email', read_only=True)
+    empresa_nombre = serializers.CharField(source='empresa.razon_social', read_only=True)
+    permisos = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Empleado
+        fields = ['id', 'usuario_nombre', 'usuario_email', 'empresa_nombre', 'cargo', 'estado', 'permisos']
+        read_only_fields = fields
+
+    def get_permisos(self, obj):
+        return PermisoSerializer([ep.permiso for ep in obj.permisos.select_related('permiso')], many=True).data
 
 
 class GoogleAuthSerializer(serializers.Serializer):
