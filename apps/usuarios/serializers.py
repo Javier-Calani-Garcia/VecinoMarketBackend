@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
+from django.contrib.gis.geos import Point
 from django.core.mail import send_mail
 from django.utils import timezone
 from django.utils.encoding import force_bytes
@@ -12,7 +13,7 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from apps.core.utils import RecaptchaError, verificar_recaptcha
 from apps.suscripciones.models import Suscripcion
 
-from .models import Comprador, Empleado, Empresa, Permiso, RolBase, SolicitudEmpresa, Usuario
+from .models import Comprador, Direccion, Empleado, Empresa, Permiso, RolBase, SolicitudEmpresa, Usuario
 
 
 class LoginSerializer(TokenObtainPairSerializer):
@@ -476,3 +477,41 @@ class GoogleAuthSerializer(serializers.Serializer):
             creado = True
 
         return usuario, creado
+
+
+class DireccionSerializer(serializers.ModelSerializer):
+    """CU13: dirección de envío del comprador. 'ubicacion' (PointField de
+    PostGIS) no es JSON-friendly directo, así que entra/sale como lat/lon
+    planos — el mapa (Leaflet) del frontend manda esos dos números, ya sea
+    por click en el mapa o por geolocalización del navegador."""
+
+    lat = serializers.FloatField(write_only=True)
+    lon = serializers.FloatField(write_only=True)
+    latitud = serializers.SerializerMethodField()
+    longitud = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Direccion
+        fields = [
+            'id', 'alias', 'direccion_texto', 'departamento', 'ciudad',
+            'es_predeterminada', 'lat', 'lon', 'latitud', 'longitud',
+        ]
+
+    def get_latitud(self, obj):
+        return obj.ubicacion.y if obj.ubicacion else None
+
+    def get_longitud(self, obj):
+        return obj.ubicacion.x if obj.ubicacion else None
+
+    def create(self, validated_data):
+        lat = validated_data.pop('lat')
+        lon = validated_data.pop('lon')
+        validated_data['ubicacion'] = Point(lon, lat, srid=4326)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        lat = validated_data.pop('lat', None)
+        lon = validated_data.pop('lon', None)
+        if lat is not None and lon is not None:
+            validated_data['ubicacion'] = Point(lon, lat, srid=4326)
+        return super().update(instance, validated_data)

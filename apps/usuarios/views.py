@@ -17,8 +17,8 @@ from apps.auditoria.models import LogAuditoria
 from apps.core.utils import get_client_ip
 from apps.suscripciones.models import Suscripcion
 
-from .models import Empleado, EmpleadoPermiso, Empresa, Permiso, RolBase, RolBasePermiso, SolicitudEmpresa, Usuario
-from .permissions import EsAdmin, EsEmpresa, EsSuperAdmin
+from .models import Comprador, Direccion, Empleado, EmpleadoPermiso, Empresa, Permiso, RolBase, RolBasePermiso, SolicitudEmpresa, Usuario
+from .permissions import EsAdmin, EsComprador, EsEmpresa, EsSuperAdmin
 from .serializers import (
     ActualizarPerfilAdminSerializer,
     ActualizarPerfilSerializer,
@@ -27,6 +27,7 @@ from .serializers import (
     CambiarRolSerializer,
     ConfirmarResetPasswordSerializer,
     CrearEmpleadoSerializer,
+    DireccionSerializer,
     EditarEmpresaAdminSerializer,
     EditarUsuarioAdminSerializer,
     EmpleadoAdminSerializer,
@@ -695,3 +696,43 @@ class PermisoRolBaseView(APIView):
         RolBasePermiso.objects.filter(rol_base_id=rol_id, permiso_id=permiso_id).delete()
         _log(request, 'QUITAR_PERMISO_ROL', 'rol_base', rol_id, detalle={'permiso_id': permiso_id})
         return Response(RolBaseSerializer(rol).data)
+
+
+class ListaCrearMisDireccionesView(ListCreateAPIView):
+    """CU13: el comprador ve y agrega SUS direcciones de envío — con
+    latitud/longitud puestas por GPS o clic en el mapa (Leaflet) del
+    frontend, nunca escritas a mano."""
+
+    permission_classes = [EsComprador]
+    serializer_class = DireccionSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        return Direccion.objects.filter(comprador__usuario=self.request.user, activo=True).order_by('-es_predeterminada', '-creado_en')
+
+    def perform_create(self, serializer):
+        comprador = get_object_or_404(Comprador, usuario=self.request.user)
+        direccion = serializer.save(comprador=comprador)
+        _log(self.request, 'CREAR_DIRECCION', 'direccion', direccion.id, detalle={'alias': direccion.alias})
+
+
+class EditarEliminarMiDireccionView(APIView):
+    """CU13: edita o elimina una de las direcciones del comprador
+    autenticado — nunca la de otro comprador."""
+
+    permission_classes = [EsComprador]
+
+    def patch(self, request, direccion_id):
+        direccion = get_object_or_404(Direccion, id=direccion_id, comprador__usuario=request.user)
+        serializer = DireccionSerializer(direccion, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        _log(request, 'EDITAR_DIRECCION', 'direccion', direccion.id, detalle={'alias': direccion.alias})
+        return Response(DireccionSerializer(direccion).data)
+
+    def delete(self, request, direccion_id):
+        direccion = get_object_or_404(Direccion, id=direccion_id, comprador__usuario=request.user)
+        alias = direccion.alias
+        direccion.delete()
+        _log(request, 'ELIMINAR_DIRECCION', 'direccion', direccion_id, detalle={'alias': alias})
+        return Response(status=status.HTTP_204_NO_CONTENT)

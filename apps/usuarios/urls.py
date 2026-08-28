@@ -11,6 +11,7 @@ from .views import (
     DesactivarEmpleadoAdminView,
     DesactivarEmpleadoView,
     DesbloquearUsuarioView,
+    EditarEliminarMiDireccionView,
     EditarEmpresaAdminView,
     EditarUsuarioAdminView,
     EliminarRolBaseView,
@@ -26,6 +27,7 @@ from .views import (
     LogoutView,
     PerfilView,
     PermisoEmpleadoAdminView,
+    ListaCrearMisDireccionesView,
     PermisoRolBaseView,
     ReactivarEmpleadoAdminView,
     ReactivarEmpleadoView,
@@ -86,4 +88,8 @@ urlpatterns = [
     path('roles-base/', ListaCrearRolBaseView.as_view(), name='lista_crear_rol_base'),
     path('roles-base/<int:rol_id>/', EliminarRolBaseView.as_view(), name='eliminar_rol_base'),
     path('roles-base/<int:rol_id>/permisos/<int:permiso_id>/', PermisoRolBaseView.as_view(), name='permiso_rol_base'),
+
+    # CU13: direcciones de envío del comprador autenticado
+    path('mis-direcciones/', ListaCrearMisDireccionesView.as_view(), name='mis_direcciones'),
+    path('mis-direcciones/<int:direccion_id>/', EditarEliminarMiDireccionView.as_view(), name='mi_direccion_detalle'),
 ]

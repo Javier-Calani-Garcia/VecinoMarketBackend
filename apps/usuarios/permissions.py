@@ -31,6 +31,16 @@ class EsEmpresa(BasePermission):
         return bool(user and user.is_authenticated and user.es_empresa())
 
 
+class EsComprador(BasePermission):
+    """CU13: solo el comprador dueño de sus propias direcciones."""
+
+    message = 'Solo un comprador puede realizar esta acción.'
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and user.es_comprador())
+
+
 class TienePermisoEmpleado(BasePermission):
     """
     Permite el acceso si el usuario es dueño de la empresa (acceso total al

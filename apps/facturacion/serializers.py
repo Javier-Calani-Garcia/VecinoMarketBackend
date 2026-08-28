@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import MetodoPago
+from .models import ComisionVenta, Factura, MetodoPago
 
 
 class _MetodoPagoBaseSerializer(serializers.ModelSerializer):
@@ -40,3 +40,31 @@ class MetodoPagoEmpresaSerializer(_MetodoPagoBaseSerializer):
             **_MetodoPagoBaseSerializer.Meta.extra_kwargs,
             'empresa': {'read_only': True},
         }
+
+
+class ComisionVentaSerializer(serializers.ModelSerializer):
+    numero_pedido = serializers.CharField(source='pedido.numero_pedido', read_only=True)
+
+    class Meta:
+        model = ComisionVenta
+        fields = ['id', 'pedido', 'numero_pedido', 'monto_venta', 'porcentaje_aplicado', 'monto_comision', 'creado_en']
+
+
+class FacturaSerializer(serializers.ModelSerializer):
+    """CU26: factura de la empresa hacia la plataforma — de suscripción
+    (cobro mensual del plan) o de comisión (se genera sola, ver
+    fn_generar_factura_comision, cuando un pedido se marca ENTREGADO).
+    'empresa' y 'tipo' son de solo lectura: una factura de comisión nace
+    ligada a su venta, no se reasigna a mano."""
+
+    empresa_nombre = serializers.CharField(source='empresa.razon_social', read_only=True)
+    comisiones = ComisionVentaSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Factura
+        fields = [
+            'id', 'empresa', 'empresa_nombre', 'suscripcion', 'tipo', 'monto',
+            'periodo_desde', 'periodo_hasta', 'estado_pago', 'fecha_pago',
+            'comisiones', 'creado_en',
+        ]
+        extra_kwargs = {'empresa': {'read_only': True}, 'tipo': {'read_only': True}}
