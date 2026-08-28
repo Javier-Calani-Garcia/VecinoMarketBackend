@@ -1,17 +1,18 @@
+from django.db import connection
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.auditoria.models import LogAuditoria
 from apps.core.utils import get_client_ip
+from apps.usuarios.models import Empresa
 from apps.usuarios.permissions import EsAdmin
-
-from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 
 from .models import Categoria, Producto, ProductoImagen
 from .serializers import (
@@ -221,3 +222,48 @@ class ImagenProductoAdminView(APIView):
     def delete(self, request, producto_id, imagen_id):
         ProductoImagen.objects.filter(id=imagen_id, producto_id=producto_id).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ListaCatalogosEmpresasView(APIView):
+    """CU05: el SuperAdmin ve un vistazo del catálogo de cada empresa
+    (total de productos, activos, categorías distintas — fn_resumen_
+    catalogo_empresa) antes de entrar a ver/editar/eliminar su catálogo
+    completo (reutiliza los mismos endpoints de CU07, filtrando por
+    ?empresa=<id>)."""
+
+    permission_classes = [EsAdmin]
+
+    def get(self, request):
+        empresas = Empresa.objects.all().order_by('razon_social')
+        q = request.query_params.get('q', '').strip()
+        if q:
+            empresas = empresas.filter(razon_social__icontains=q)
+
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT empresa_id,
+                       COUNT(*),
+                       COUNT(*) FILTER (WHERE estado = 'ACTIVO'),
+                       COUNT(DISTINCT categoria_id)
+                FROM catalogo_producto
+                WHERE activo = true
+                GROUP BY empresa_id
+            """)
+            resumen = {
+                row[0]: {'total_productos': row[1], 'productos_activos': row[2], 'categorias_distintas': row[3]}
+                for row in cursor.fetchall()
+            }
+
+        vacio = {'total_productos': 0, 'productos_activos': 0, 'categorias_distintas': 0}
+        resultados = [
+            {
+                'id': e.id,
+                'razon_social': e.razon_social,
+                'slug': e.slug,
+                'logo_url': e.logo_url,
+                'ciudad': e.ciudad,
+                **resumen.get(e.id, vacio),
+            }
+            for e in empresas
+        ]
+        return Response(resultados)

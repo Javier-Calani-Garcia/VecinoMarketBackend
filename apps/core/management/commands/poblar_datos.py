@@ -109,6 +109,7 @@ PERMISOS = [
     ('gestionar_promociones', 'Crear y gestionar promociones y live commerce'),
     ('gestionar_chat', 'Responder conversaciones con compradores'),
     ('ver_reportes', 'Ver reportes y estadísticas de ventas'),
+    ('gestionar_pagos', 'Configurar los métodos de pago de la empresa (QR, cuenta bancaria, pasarela)'),
 ]
 
 ROLES_BASE = [

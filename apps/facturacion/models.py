@@ -64,6 +64,48 @@ class Referido(BaseModel):
         return f'{self.empresa_referente} -> {self.empresa_referida}'
 
 
+class MetodoPago(BaseModel):
+    """CU25: cómo le pagan a una empresa (QR, cuenta bancaria o pasarela de
+    pago). El SuperAdmin puede ver/editar/eliminar el de cualquier empresa."""
+
+    class Tipo(models.TextChoices):
+        QR = 'QR', 'Código QR'
+        CUENTA_BANCARIA = 'CUENTA_BANCARIA', 'Cuenta bancaria'
+        PASARELA = 'PASARELA', 'Pasarela de pago'
+
+    empresa = models.ForeignKey('usuarios.Empresa', on_delete=models.CASCADE, related_name='+')
+    tipo = models.CharField(max_length=20, choices=Tipo.choices)
+    nombre = models.CharField(max_length=100, help_text='Ej: "QR BCP", "Cuenta Banco Unión", "Stripe"')
+
+    # Cuenta bancaria
+    banco = models.CharField(max_length=100, blank=True)
+    numero_cuenta = models.CharField(max_length=50, blank=True)
+    titular = models.CharField(max_length=150, blank=True)
+
+    # QR (imagen subida a Cloudinary, igual que las fotos de producto)
+    imagen_qr = models.ImageField(upload_to='metodos_pago/', blank=True, null=True)
+
+    # Pasarela de pago
+    proveedor_pasarela = models.CharField(max_length=100, blank=True, help_text='Ej: Stripe, PagoFácil')
+    referencia_pasarela = models.CharField(
+        max_length=150, blank=True, help_text='ID de cuenta/comercio en la pasarela (no credenciales secretas)'
+    )
+
+    predeterminado = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = 'Método de pago'
+        verbose_name_plural = 'Métodos de pago'
+        indexes = [models.Index(fields=['empresa'])]
+
+    @property
+    def imagen_qr_url(self):
+        return self.imagen_qr.url if self.imagen_qr else ''
+
+    def __str__(self):
+        return f'{self.nombre} ({self.empresa})'
+
+
 class ComisionVenta(BaseModel):
     """CU26: registro detallado por venta, ligado a la factura de comisión."""
 

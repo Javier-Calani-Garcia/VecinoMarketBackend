@@ -5,6 +5,7 @@ from .views import (
     EditarEliminarCategoriaAdminView,
     EditarEliminarProductoAdminView,
     ImagenProductoAdminView,
+    ListaCatalogosEmpresasView,
     ListaCategoriasView,
     ListaCrearCategoriaAdminView,
     ListaCrearProductoAdminView,
@@ -27,4 +28,7 @@ urlpatterns = [
     path('admin/productos/<int:producto_id>/', EditarEliminarProductoAdminView.as_view(), name='admin-producto-detalle'),
     path('admin/productos/<int:producto_id>/imagenes/', ImagenProductoAdminView.as_view(), name='admin-producto-imagenes'),
     path('admin/productos/<int:producto_id>/imagenes/<int:imagen_id>/', ImagenProductoAdminView.as_view(), name='admin-producto-imagen-detalle'),
+
+    # CU05: catálogo por empresa (resumen + reutiliza el CRUD de CU07)
+    path('admin/catalogos-empresas/', ListaCatalogosEmpresasView.as_view(), name='admin-catalogos-empresas'),
 ]
