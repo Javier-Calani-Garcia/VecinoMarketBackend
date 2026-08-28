@@ -207,3 +207,10 @@ RECAPTCHA_SECRET_KEY = env('RECAPTCHA_SECRET_KEY', default='')
 # la app. No reemplaza al reCAPTCHA en la web (que sigue exigiéndose igual);
 # solo evita bloquear al único otro cliente de confianza que tenemos.
 MOBILE_APP_SECRET = env('MOBILE_APP_SECRET', default='')
+
+# ---------------------------------------------------------------------------
+# Hugging Face Inference API (CU08): clasificación zero-shot de la imagen de
+# un producto contra los nombres de las categorías existentes, para sugerir
+# a cuál pertenece. Token gratuito de solo lectura, ver apps/catalogo/ia.py.
+# ---------------------------------------------------------------------------
+HUGGINGFACE_API_TOKEN = env('HUGGINGFACE_API_TOKEN', default='')

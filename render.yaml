@@ -60,3 +60,8 @@ services:
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
+      # Hugging Face Inference API (CU08): sugerencia de categoría por
+      # visión artificial. Token gratuito de solo lectura, sacar de
+      # huggingface.co/settings/tokens. Sin esto, CU08 responde 502.
+      - key: HUGGINGFACE_API_TOKEN
+        sync: false

@@ -11,6 +11,7 @@ from .views import (
     ListaCrearProductoAdminView,
     ListaProductosView,
     ProductosPorCategoriaAdminView,
+    SugerirCategoriaProductoView,
 )
 
 urlpatterns = [
@@ -31,4 +32,7 @@ urlpatterns = [
 
     # CU05: catálogo por empresa (resumen + reutiliza el CRUD de CU07)
     path('admin/catalogos-empresas/', ListaCatalogosEmpresasView.as_view(), name='admin-catalogos-empresas'),
+
+    # CU08: sugerencia de categoría por visión artificial
+    path('admin/productos/<int:producto_id>/sugerir-categoria/', SugerirCategoriaProductoView.as_view(), name='admin-producto-sugerir-categoria'),
 ]

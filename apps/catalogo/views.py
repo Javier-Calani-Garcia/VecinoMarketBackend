@@ -9,12 +9,15 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from decimal import Decimal
+
 from apps.auditoria.models import LogAuditoria
 from apps.core.utils import get_client_ip
 from apps.usuarios.models import Empresa
 from apps.usuarios.permissions import EsAdmin
 
-from .models import Categoria, Producto, ProductoImagen
+from .ia import ServicioIANoDisponible, sugerir_categoria
+from .models import Categoria, CategorizacionIALog, Producto, ProductoImagen
 from .serializers import (
     CategoriaAdminSerializer,
     CategoriaSerializer,
@@ -267,3 +270,53 @@ class ListaCatalogosEmpresasView(APIView):
             for e in empresas
         ]
         return Response(resultados)
+
+
+class SugerirCategoriaProductoView(APIView):
+    """CU08: analiza la primera imagen del producto con un modelo de visión
+    artificial (clasificación + mapeo por dominio a las categorías
+    existentes, ver apps/catalogo/ia.py) y sugiere a cuál pertenece. No
+    cambia el producto — el admin decide si aplicar la sugerencia
+    editándolo (CU07)."""
+
+    permission_classes = [EsAdmin]
+
+    def post(self, request, producto_id):
+        producto = get_object_or_404(Producto.objects.prefetch_related('imagenes'), id=producto_id)
+
+        imagen = producto.imagenes.first()
+        if not imagen or not imagen.url_efectiva:
+            return Response({'detail': 'El producto no tiene ninguna imagen para analizar.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        categorias = list(Categoria.objects.filter(activo=True))
+        if not categorias:
+            return Response({'detail': 'No hay categorías registradas para sugerir.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        imagen_url = imagen.url_efectiva
+        if imagen_url.startswith('/'):
+            imagen_url = request.build_absolute_uri(imagen_url)
+
+        try:
+            resultado = sugerir_categoria(imagen_url, categorias)
+        except ServicioIANoDisponible as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+
+        categoria_sugerida = resultado['categoria']
+        confianza = Decimal(str(resultado['confianza']))
+
+        CategorizacionIALog.objects.create(
+            producto=producto, categoria_sugerida=categoria_sugerida, confianza=confianza
+        )
+        _log(request, 'SUGERIR_CATEGORIA_IA', producto.id, {
+            'categoria_sugerida': categoria_sugerida.nombre if categoria_sugerida else None, 'confianza': str(confianza),
+        }, entidad_afectada='producto')
+
+        return Response({
+            'categoria_sugerida': (
+                {'id': categoria_sugerida.id, 'nombre': categoria_sugerida.nombre} if categoria_sugerida else None
+            ),
+            'confianza': float(confianza),
+            'alternativas': [
+                {'nombre': e['nombre'], 'confianza': e['confianza']} for e in resultado['etiquetas']
+            ],
+        })
