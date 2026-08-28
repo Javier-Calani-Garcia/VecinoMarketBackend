@@ -28,9 +28,7 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
-    'cloudinary_storage',
     'django.contrib.staticfiles',
-    'cloudinary',
     'django.contrib.gis',
 
     'rest_framework',
@@ -117,6 +115,13 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # local — en Render el disco es efímero y se pierde en cada redeploy. Si las
 # 3 variables no están configuradas, queda el storage local (sirve para
 # desarrollar sin cuenta de Cloudinary, pero no persiste en producción).
+#
+# OJO: 'cloudinary_storage' y 'cloudinary' NO van en INSTALLED_APPS. No
+# hace falta (STORAGES solo necesita poder importar la clase por su path,
+# no que la app esté registrada), y registrarlas rompe el post-procesado
+# de whitenoise en collectstatic (falla con MissingFileError buscando
+# admin/img/sorting-icons.svg). Costó una release fallida en Render
+# encontrarlo — no las agregues de nuevo a INSTALLED_APPS.
 CLOUDINARY_STORAGE = {
     'CLOUD_NAME': env('CLOUDINARY_CLOUD_NAME', default=''),
     'API_KEY': env('CLOUDINARY_API_KEY', default=''),
