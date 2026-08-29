@@ -6,12 +6,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.auditoria.models import LogAuditoria
+from apps.core.exportadores import FORMATOS_VALIDOS, exportar_reporte
 from apps.core.utils import get_client_ip
 from apps.pedidos.models import Pedido
 from apps.usuarios.models import Comprador, Empresa
 from apps.usuarios.permissions import EsAdmin, EsComprador, TienePermisoEmpleado
 
-from .exportadores import FORMATOS_VALIDOS, exportar_reporte
 from .models import RecomendacionIA, Valoracion
 from .serializers import RecomendacionIASerializer, ValoracionSerializer
 

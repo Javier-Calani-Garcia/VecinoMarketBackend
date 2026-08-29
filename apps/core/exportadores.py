@@ -1,7 +1,8 @@
-"""CU18/CU19: exportación de reportes de dashboard a CSV, XLSX y PDF.
+"""Exportación genérica de reportes/documentos a CSV, XLSX y PDF —
+usado por los dashboards (CU18/CU19) y por las facturas (CU26).
 
 Formato común de entrada para no repetir la generación de cada tipo de
-archivo por cada dashboard: una lista de "secciones", cada una con un
+archivo por cada consumidor: una lista de "secciones", cada una con un
 título, encabezados de columna y filas de datos ya formateados a texto.
 """
 import csv

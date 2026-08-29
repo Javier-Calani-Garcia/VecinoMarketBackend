@@ -26,8 +26,11 @@ from .views import (
     ListaUsuariosView,
     LoginView,
     LogoutView,
+    MiEmpresaView,
     PerfilView,
+    SubirLogoEmpresaView,
     PermisoEmpleadoAdminView,
+    PermisoEmpleadoPropioView,
     ListaCrearMisDireccionesView,
     PermisoRolBaseView,
     ReactivarEmpleadoAdminView,
@@ -61,6 +64,10 @@ urlpatterns = [
     path('empleados/lista/', ListaEmpleadosView.as_view(), name='lista_empleados'),
     path('empleados/<int:empleado_id>/desactivar/', DesactivarEmpleadoView.as_view(), name='desactivar_empleado'),
     path('empleados/<int:empleado_id>/reactivar/', ReactivarEmpleadoView.as_view(), name='reactivar_empleado'),
+    path('empleados/<int:empleado_id>/mis-permisos/<int:permiso_id>/', PermisoEmpleadoPropioView.as_view(), name='permiso_empleado_propio'),
+
+    path('mi-empresa/', MiEmpresaView.as_view(), name='mi_empresa'),
+    path('mi-empresa/logo/', SubirLogoEmpresaView.as_view(), name='subir_logo_empresa'),
 
     # CU09: el SuperAdmin gestiona empleados de cualquier empresa y sus permisos
     path('empleados/lista-admin/', ListaEmpleadosAdminView.as_view(), name='lista_empleados_admin'),

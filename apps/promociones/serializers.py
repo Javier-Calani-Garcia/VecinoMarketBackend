@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from apps.catalogo.models import Producto
 
-from .models import LiveCommerceSesion, Promocion
+from .models import ComentarioLive, LiveCommerceSesion, Promocion
 
 
 class _PromocionBaseSerializer(serializers.ModelSerializer):
@@ -51,13 +51,17 @@ class _LiveSerializerBase(serializers.ModelSerializer):
     empresa_logo_url = serializers.CharField(source='empresa.logo_url', read_only=True)
     productos = serializers.PrimaryKeyRelatedField(queryset=Producto.objects.all(), many=True, required=False)
     productos_detalle = serializers.SerializerMethodField()
+    pausado = serializers.SerializerMethodField()
 
     class Meta:
         model = LiveCommerceSesion
         fields = [
             'id', 'empresa', 'empresa_nombre', 'empresa_logo_url', 'titulo', 'url_stream',
-            'estado', 'fecha_inicio', 'fecha_fin', 'productos', 'productos_detalle',
+            'estado', 'pausado', 'fecha_inicio', 'fecha_fin', 'productos', 'productos_detalle',
         ]
+
+    def get_pausado(self, obj):
+        return obj.pausado_desde is not None
 
     def get_productos_detalle(self, obj):
         return [{'id': p.id, 'nombre': p.nombre, 'precio': p.precio} for p in obj.productos.all()]
@@ -74,16 +78,23 @@ class LiveAdminSerializer(_LiveSerializerBase):
     """CU17: el SuperAdmin/Admin ve cualquier sesión — no crea (las
     sesiones nacen del lado de la empresa), pero puede darla de baja."""
 
+    grabacion_url = serializers.CharField(read_only=True)
+
     class Meta(_LiveSerializerBase.Meta):
+        fields = _LiveSerializerBase.Meta.fields + ['grabacion_url']
         extra_kwargs = {'empresa': {'read_only': True}}
 
 
 class LiveEmpresaSerializer(_LiveSerializerBase):
     """CU17: la empresa (dueño o empleado con permiso 'gestionar_promociones')
     crea y gestiona sus propias sesiones — 'empresa' es de solo lectura, la
-    vista la fuerza a la propia."""
+    vista la fuerza a la propia. 'grabacion_url' solo la ve la propia
+    empresa, no aparece en LivePublicoSerializer."""
+
+    grabacion_url = serializers.CharField(read_only=True)
 
     class Meta(_LiveSerializerBase.Meta):
+        fields = _LiveSerializerBase.Meta.fields + ['grabacion_url']
         extra_kwargs = {'empresa': {'read_only': True}}
 
     def validate_productos(self, productos):
@@ -92,3 +103,13 @@ class LiveEmpresaSerializer(_LiveSerializerBase):
         if ajenos:
             raise serializers.ValidationError('Todos los productos deben ser de tu empresa.')
         return productos
+
+
+class ComentarioLiveSerializer(serializers.ModelSerializer):
+    usuario_nombre = serializers.CharField(source='usuario.nombre', read_only=True)
+    usuario_rol = serializers.CharField(source='usuario.rol', read_only=True)
+
+    class Meta:
+        model = ComentarioLive
+        fields = ['id', 'sesion', 'usuario_nombre', 'usuario_rol', 'texto', 'creado_en']
+        read_only_fields = ['id', 'sesion', 'usuario_nombre', 'usuario_rol', 'creado_en']

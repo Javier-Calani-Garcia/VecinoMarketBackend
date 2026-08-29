@@ -3,14 +3,18 @@ from django.urls import path
 from .views import (
     DetalleProductoView,
     EditarEliminarCategoriaAdminView,
+    EditarEliminarMiProductoView,
     EditarEliminarProductoAdminView,
+    ImagenMiProductoView,
     ImagenProductoAdminView,
     ListaCatalogosEmpresasView,
     ListaCategoriasView,
     ListaCrearCategoriaAdminView,
+    ListaCrearMisProductosView,
     ListaCrearProductoAdminView,
     ListaProductosView,
     ProductosPorCategoriaAdminView,
+    SugerirCategoriaMiProductoView,
     SugerirCategoriaProductoView,
 )
 
@@ -32,6 +36,13 @@ urlpatterns = [
 
     # CU05: catálogo por empresa (resumen + reutiliza el CRUD de CU07)
     path('admin/catalogos-empresas/', ListaCatalogosEmpresasView.as_view(), name='admin-catalogos-empresas'),
+
+    # CU07: autogestión — la empresa (dueño o empleado con permiso) sobre SUS propios productos
+    path('mis-productos/', ListaCrearMisProductosView.as_view(), name='mis-productos'),
+    path('mis-productos/<int:producto_id>/', EditarEliminarMiProductoView.as_view(), name='mi-producto-detalle'),
+    path('mis-productos/<int:producto_id>/imagenes/', ImagenMiProductoView.as_view(), name='mi-producto-imagenes'),
+    path('mis-productos/<int:producto_id>/imagenes/<int:imagen_id>/', ImagenMiProductoView.as_view(), name='mi-producto-imagen-detalle'),
+    path('mis-productos/<int:producto_id>/sugerir-categoria/', SugerirCategoriaMiProductoView.as_view(), name='mi-producto-sugerir-categoria'),
 
     # CU08: sugerencia de categoría por visión artificial
     path('admin/productos/<int:producto_id>/sugerir-categoria/', SugerirCategoriaProductoView.as_view(), name='admin-producto-sugerir-categoria'),

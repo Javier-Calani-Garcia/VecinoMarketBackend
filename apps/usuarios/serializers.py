@@ -294,6 +294,16 @@ class EditarEmpresaAdminSerializer(serializers.ModelSerializer):
         return value
 
 
+class EditarMiEmpresaSerializer(serializers.ModelSerializer):
+    """La empresa edita su propio perfil — a diferencia de
+    EditarEmpresaAdminSerializer, no incluye 'slug' (identidad de URL) ni
+    'estado' (suspensión/moderación), que siguen siendo solo del SuperAdmin."""
+
+    class Meta:
+        model = Empresa
+        fields = ['razon_social', 'nit', 'logo_url', 'color_marca', 'descripcion', 'departamento', 'ciudad']
+
+
 class CambiarPasswordSerializer(serializers.Serializer):
     password_actual = serializers.CharField(write_only=True)
     password_nueva = serializers.CharField(write_only=True, min_length=8)

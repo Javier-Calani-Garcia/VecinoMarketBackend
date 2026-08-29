@@ -1,11 +1,13 @@
 from django.db import DatabaseError, connection
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.auditoria.models import LogAuditoria
+from apps.core.exportadores import FORMATOS_VALIDOS, exportar_reporte
 from apps.core.utils import get_client_ip
 from apps.usuarios.permissions import EsAdmin, TienePermisoEmpleado
 
@@ -198,6 +200,112 @@ class EditarEliminarMiFacturaView(APIView):
         factura.delete()
         _log(request, 'ELIMINAR_FACTURA', factura_id, {}, entidad_afectada='factura')
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+ESTADOS_PAGO_LEGIBLES = dict(Factura.EstadoPago.choices)
+TIPOS_FACTURA_LEGIBLES = dict(Factura.Tipo.choices)
+
+
+def _secciones_factura(factura):
+    datos = [
+        ['Empresa', factura.empresa.razon_social],
+        ['NIT', factura.empresa.nit or '—'],
+        ['N° de factura', f'FAC-{factura.id:06d}'],
+        ['Tipo', TIPOS_FACTURA_LEGIBLES.get(factura.tipo, factura.tipo)],
+        ['Fecha de emisión', factura.creado_en.strftime('%d/%m/%Y %H:%M')],
+        ['Estado de pago', ESTADOS_PAGO_LEGIBLES.get(factura.estado_pago, factura.estado_pago)],
+        ['Fecha de pago', factura.fecha_pago.strftime('%d/%m/%Y %H:%M') if factura.fecha_pago else '—'],
+    ]
+    if factura.periodo_desde or factura.periodo_hasta:
+        periodo = f"{factura.periodo_desde or '—'} al {factura.periodo_hasta or '—'}"
+        datos.append(['Periodo facturado', periodo])
+
+    secciones = [{'titulo': 'Datos de la factura', 'headers': ['Campo', 'Valor'], 'filas': datos}]
+
+    if factura.tipo == Factura.Tipo.COMISION:
+        comisiones = list(factura.comisiones.select_related('pedido').prefetch_related('pedido__items__producto'))
+
+        filas_ventas = []
+        for comision in comisiones:
+            for item in comision.pedido.items.all():
+                filas_ventas.append([
+                    comision.pedido.numero_pedido,
+                    comision.pedido.creado_en.strftime('%d/%m/%Y'),
+                    item.producto.nombre,
+                    item.cantidad,
+                    f'{item.precio_unitario:.2f}',
+                    f'{item.subtotal:.2f}',
+                ])
+        secciones.append({
+            'titulo': 'Qué se vendió',
+            'headers': ['Pedido', 'Fecha', 'Producto', 'Cantidad', 'Precio unitario (Bs)', 'Subtotal (Bs)'],
+            'filas': filas_ventas,
+        })
+
+        filas_comisiones = [
+            [c.pedido.numero_pedido, f'{c.monto_venta:.2f}', f'{c.porcentaje_aplicado}%', f'{c.monto_comision:.2f}']
+            for c in comisiones
+        ]
+        secciones.append({
+            'titulo': 'Comisión por pedido',
+            'headers': ['Pedido', 'Monto de venta (Bs)', '% aplicado', 'Comisión (Bs)'],
+            'filas': filas_comisiones,
+        })
+
+    secciones.append({
+        'titulo': 'Total',
+        'headers': ['Concepto', 'Monto (Bs)'],
+        'filas': [['Total facturado', f'{factura.monto:.2f}']],
+    })
+    return secciones
+
+
+def _validar_formato_factura(request):
+    formato = request.query_params.get('formato', 'pdf').lower()
+    if formato not in FORMATOS_VALIDOS:
+        return None, Response({'detail': 'Formato inválido. Usa csv, xlsx o pdf.'}, status=status.HTTP_400_BAD_REQUEST)
+    return formato, None
+
+
+class ExportarFacturaAdminView(APIView):
+    """CU26: el SuperAdmin exporta cualquier factura como proforma
+    (csv/xlsx/pdf) — para las de comisión, incluye el detalle de qué se
+    vendió y a qué precio, no solo el monto agregado."""
+
+    permission_classes = [EsAdmin]
+
+    def get(self, request, factura_id):
+        formato, error = _validar_formato_factura(request)
+        if error:
+            return error
+        factura = get_object_or_404(Factura.objects.select_related('empresa'), id=factura_id)
+        return exportar_reporte(
+            formato, f'factura-{factura.id}',
+            f'Factura FAC-{factura.id:06d} · {factura.empresa.razon_social}',
+            f'VecinoMarket · Generado el {timezone.now().strftime("%d/%m/%Y %H:%M")}',
+            _secciones_factura(factura),
+        )
+
+
+class ExportarMiFacturaView(APIView):
+    """CU26: la empresa exporta una de SUS facturas como proforma."""
+
+    permission_classes = [TienePermisoEmpleado]
+    permiso_requerido = 'gestionar_facturacion'
+
+    def get(self, request, factura_id):
+        formato, error = _validar_formato_factura(request)
+        if error:
+            return error
+        factura = get_object_or_404(
+            Factura.objects.select_related('empresa'), id=factura_id, empresa=request.user.get_empresa()
+        )
+        return exportar_reporte(
+            formato, f'factura-{factura.id}',
+            f'Factura FAC-{factura.id:06d} · {factura.empresa.razon_social}',
+            f'VecinoMarket · Generado el {timezone.now().strftime("%d/%m/%Y %H:%M")}',
+            _secciones_factura(factura),
+        )
 
 
 class ListaReferidosAdminView(generics.ListAPIView):

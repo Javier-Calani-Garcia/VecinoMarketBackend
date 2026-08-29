@@ -23,6 +23,11 @@ if platform.system() == 'Windows':
     GEOS_LIBRARY_PATH = env('GEOS_LIBRARY_PATH', default=rf'{_PG_BIN}\libgeos_c.dll')
 
 INSTALLED_APPS = [
+    # 'daphne' va primero: es el patrón oficial de Channels para que
+    # 'manage.py runserver' sirva WebSockets en desarrollo (además de HTTP
+    # normal) sin necesitar un comando separado.
+    'daphne',
+
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -34,6 +39,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'rest_framework_simplejwt.token_blacklist',
+    'channels',
 
     'apps.core',
     'apps.usuarios',
@@ -137,6 +143,19 @@ STORAGES = {
 }
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ---------------------------------------------------------------------------
+# Django Channels (CU17: señalización WebRTC para live commerce)
+# ---------------------------------------------------------------------------
+ASGI_APPLICATION = 'config.asgi.application'
+# InMemoryChannelLayer: alcanza con una sola instancia de proceso (así corre
+# hoy el backend en Render free tier). Si en el futuro hay varias réplicas,
+# hace falta channels-redis + un Redis compartido entre ellas.
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+    },
+}
 
 # ---------------------------------------------------------------------------
 # Django REST Framework / JWT

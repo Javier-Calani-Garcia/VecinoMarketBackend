@@ -3,15 +3,19 @@ from django.urls import path
 from .views import (
     BloquearEmpresaLiveAdminView,
     DarDeBajaLiveAdminView,
+    DetalleLiveView,
     EditarEliminarMiLiveView,
     EditarEliminarMiPromocionView,
     EditarEliminarPromocionAdminView,
+    GrabacionMiLiveView,
+    ListaCrearComentariosLiveView,
     ListaCrearMisLivesView,
     ListaCrearMisPromocionesView,
     ListaLivesAdminView,
     ListaLivesPublicoView,
     ListaPromocionesAdminView,
     ListaResumenEmpresasPromocionesAdminView,
+    SubirGrabacionMiLiveView,
 )
 
 urlpatterns = [
@@ -26,10 +30,14 @@ urlpatterns = [
 
     # CU17: live commerce — público (botón "LIVE")
     path('lives/', ListaLivesPublicoView.as_view(), name='lives-publico'),
+    path('lives/<int:pk>/', DetalleLiveView.as_view(), name='live-detalle-publico'),
+    path('lives/<int:live_id>/comentarios/', ListaCrearComentariosLiveView.as_view(), name='live-comentarios'),
 
     # CU17: autogestión — la empresa emite sus propios lives
     path('mis-lives/', ListaCrearMisLivesView.as_view(), name='mis-lives'),
     path('mis-lives/<int:live_id>/', EditarEliminarMiLiveView.as_view(), name='mi-live-detalle'),
+    path('mis-lives/<int:live_id>/grabacion/', GrabacionMiLiveView.as_view(), name='mi-live-grabacion'),
+    path('mis-lives/<int:live_id>/subir-grabacion/', SubirGrabacionMiLiveView.as_view(), name='mi-live-subir-grabacion'),
 
     # CU17: SuperAdmin/Admin de soporte
     path('admin/lives/', ListaLivesAdminView.as_view(), name='admin-lives'),

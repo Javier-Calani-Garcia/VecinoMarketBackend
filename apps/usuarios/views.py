@@ -1,3 +1,4 @@
+from django.core.files.storage import default_storage
 from django.db import connection
 from django.db.models import OuterRef, Q, Subquery
 from django.shortcuts import get_object_or_404
@@ -5,6 +6,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.generics import CreateAPIView, ListAPIView, ListCreateAPIView
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -29,6 +31,7 @@ from .serializers import (
     CrearEmpleadoSerializer,
     DireccionSerializer,
     EditarEmpresaAdminSerializer,
+    EditarMiEmpresaSerializer,
     EmpresaPublicaSerializer,
     EditarUsuarioAdminSerializer,
     EmpleadoAdminSerializer,
@@ -196,11 +199,11 @@ class CrearEmpleadoView(CreateAPIView):
 
 class ListaEmpleadosView(ListAPIView):
     permission_classes = [EsEmpresa]
-    serializer_class = UsuarioSerializer
+    serializer_class = EmpleadoAdminSerializer
 
     def get_queryset(self):
         empresa = self.request.user.get_empresa()
-        return Usuario.objects.filter(empleado__empresa=empresa)
+        return Empleado.objects.filter(empresa=empresa).select_related('usuario', 'empresa').order_by('-creado_en')
 
 
 class DesactivarEmpleadoView(APIView):
@@ -238,6 +241,30 @@ class ReactivarEmpleadoView(APIView):
 
         _log(request, 'REACTIVAR_EMPLEADO', 'empleado', empleado.id)
         return Response({'detail': 'Empleado reactivado.'}, status=status.HTTP_200_OK)
+
+
+class PermisoEmpleadoPropioView(APIView):
+    """CU09: la empresa asigna (POST) o quita (DELETE) un permiso a UNO DE
+    SUS PROPIOS empleados — el filtro por `empresa=` en el get_object_or_404
+    es la verificación de tenant: sin él, una empresa podría tocar los
+    permisos de un empleado de otra adivinando su id."""
+
+    permission_classes = [EsEmpresa]
+
+    def post(self, request, empleado_id, permiso_id):
+        empresa = request.user.get_empresa()
+        empleado = get_object_or_404(Empleado, id=empleado_id, empresa=empresa)
+        permiso = get_object_or_404(Permiso, id=permiso_id)
+        EmpleadoPermiso.objects.get_or_create(empleado=empleado, permiso=permiso)
+        _log(request, 'ASIGNAR_PERMISO_EMPLEADO', 'empleado', empleado.id, detalle={'permiso': permiso.codigo})
+        return Response(EmpleadoAdminSerializer(empleado).data)
+
+    def delete(self, request, empleado_id, permiso_id):
+        empresa = request.user.get_empresa()
+        empleado = get_object_or_404(Empleado, id=empleado_id, empresa=empresa)
+        EmpleadoPermiso.objects.filter(empleado=empleado, permiso_id=permiso_id).delete()
+        _log(request, 'QUITAR_PERMISO_EMPLEADO', 'empleado', empleado.id, detalle={'permiso_id': permiso_id})
+        return Response(EmpleadoAdminSerializer(empleado).data)
 
 
 # =====================================================================
@@ -639,6 +666,51 @@ class EditarEmpresaAdminView(APIView):
         return Response(serializer.data)
 
 
+class MiEmpresaView(APIView):
+    """La empresa ve y edita su propio perfil (razón social, logo, marca,
+    descripción, ubicación) — 'slug' y 'estado' quedan fuera de
+    EditarMiEmpresaSerializer, así que aunque se manden en el body se
+    ignoran; siguen siendo solo del SuperAdmin (EditarEmpresaAdminView)."""
+
+    permission_classes = [EsEmpresa]
+
+    def get(self, request):
+        empresa = request.user.get_empresa()
+        return Response(EditarMiEmpresaSerializer(empresa).data)
+
+    def patch(self, request):
+        empresa = request.user.get_empresa()
+        serializer = EditarMiEmpresaSerializer(empresa, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        _log(request, 'EDITAR_MI_EMPRESA', 'empresa', empresa.id)
+        return Response(serializer.data)
+
+
+class SubirLogoEmpresaView(APIView):
+    """La empresa sube su logo como imagen (campo multipart "archivo") en
+    vez de tener que pegar una URL a mano. 'logo_url' se queda como el
+    único campo que lee el resto del sistema (tarjetas de producto, header
+    admin, etc.) — acá solo lo llenamos con la URL que devuelve el storage
+    configurado (Cloudinary en producción, disco en dev sin credenciales)."""
+
+    permission_classes = [EsEmpresa]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        archivo = request.FILES.get('archivo')
+        if not archivo:
+            return Response({'detail': 'Sube un archivo de imagen.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        empresa = request.user.get_empresa()
+        nombre_guardado = default_storage.save(f'empresas/logos/{empresa.slug}-{archivo.name}', archivo)
+        empresa.logo_url = default_storage.url(nombre_guardado)
+        empresa.save(update_fields=['logo_url'])
+
+        _log(request, 'SUBIR_LOGO_EMPRESA', 'empresa', empresa.id)
+        return Response({'logo_url': empresa.logo_url}, status=status.HTTP_201_CREATED)
+
+
 class SuspenderEmpresaView(APIView):
     permission_classes = [EsAdmin]
 
@@ -666,9 +738,11 @@ class ReactivarEmpresaView(APIView):
 # =====================================================================
 
 class ListaPermisosView(ListAPIView):
-    """Catálogo de permisos disponibles en la plataforma (solo lectura)."""
+    """Catálogo de permisos disponibles en la plataforma (solo lectura) — lo
+    usa tanto el SuperAdmin (admin/Empleados.jsx) como la propia empresa al
+    asignarle permisos a sus empleados (empresa/MisEmpleados.jsx)."""
 
-    permission_classes = [EsAdmin]
+    permission_classes = [EsAdmin | EsEmpresa]
     serializer_class = PermisoSerializer
     pagination_class = None
     queryset = Permiso.objects.all().order_by('codigo')

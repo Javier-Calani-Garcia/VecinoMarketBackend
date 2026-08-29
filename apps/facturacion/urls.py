@@ -6,6 +6,8 @@ from .views import (
     EditarEliminarMetodoPagoAdminView,
     EditarEliminarMiFacturaView,
     EditarEliminarMiMetodoPagoView,
+    ExportarFacturaAdminView,
+    ExportarMiFacturaView,
     ListaCrearMetodoPagoAdminView,
     ListaCrearMisMetodosPagoView,
     ListaFacturasAdminView,
@@ -26,10 +28,12 @@ urlpatterns = [
     # CU26: facturación y comisiones (SuperAdmin/Admin de soporte)
     path('admin/facturas/', ListaFacturasAdminView.as_view(), name='admin-facturas'),
     path('admin/facturas/<int:factura_id>/', EditarEliminarFacturaAdminView.as_view(), name='admin-factura-detalle'),
+    path('admin/facturas/<int:factura_id>/exportar/', ExportarFacturaAdminView.as_view(), name='admin-factura-exportar'),
 
     # CU26: autogestión — la empresa sobre sus propias facturas
     path('mis-facturas/', ListaMisFacturasView.as_view(), name='mis-facturas'),
     path('mis-facturas/<int:factura_id>/', EditarEliminarMiFacturaView.as_view(), name='mi-factura-detalle'),
+    path('mis-facturas/<int:factura_id>/exportar/', ExportarMiFacturaView.as_view(), name='mi-factura-exportar'),
 
     # CU27: programa de referidos (SuperAdmin/Admin de soporte)
     path('admin/referidos/', ListaReferidosAdminView.as_view(), name='admin-referidos'),

@@ -93,3 +93,28 @@ class ProductoAdminSerializer(serializers.ModelSerializer):
         if value is not None and precio is not None and float(value) >= float(precio):
             raise serializers.ValidationError('El precio de descuento debe ser menor al precio normal.')
         return value
+
+
+class ProductoEmpresaSerializer(serializers.ModelSerializer):
+    """CU07: la empresa (dueño o empleado con permiso 'gestionar_productos')
+    registra, edita y ve SUS PROPIOS productos. A diferencia de
+    ProductoAdminSerializer, 'empresa' no es un campo del payload — la
+    vista siempre la fija a la del usuario autenticado."""
+
+    categoria_nombre = serializers.CharField(source='categoria.nombre', read_only=True, default=None)
+    imagenes = ProductoImagenSerializer(many=True, read_only=True)
+    stock = serializers.IntegerField(read_only=True, default=0)
+
+    class Meta:
+        model = Producto
+        fields = [
+            'id', 'nombre', 'descripcion', 'sku', 'precio', 'precio_descuento',
+            'estado', 'categoria', 'categoria_nombre', 'imagenes', 'stock', 'creado_en',
+        ]
+        read_only_fields = ['id', 'categoria_nombre', 'imagenes', 'stock', 'creado_en']
+
+    def validate_precio_descuento(self, value):
+        precio = self.initial_data.get('precio')
+        if value is not None and precio is not None and float(value) >= float(precio):
+            raise serializers.ValidationError('El precio de descuento debe ser menor al precio normal.')
+        return value
