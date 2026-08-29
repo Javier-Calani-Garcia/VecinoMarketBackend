@@ -43,6 +43,7 @@ class OrdenCompra(BaseModel):
     class MetodoPago(models.TextChoices):
         TARJETA = 'TARJETA', 'Tarjeta'
         QR = 'QR', 'QR'
+        PAYPAL = 'PAYPAL', 'PayPal'
 
     class EstadoPago(models.TextChoices):
         PENDIENTE = 'PENDIENTE', 'Pendiente'
@@ -70,6 +71,7 @@ class Pago(models.Model):
     class Metodo(models.TextChoices):
         TARJETA = 'TARJETA', 'Tarjeta'
         QR = 'QR', 'QR'
+        PAYPAL = 'PAYPAL', 'PayPal'
 
     class Estado(models.TextChoices):
         PENDIENTE = 'PENDIENTE', 'Pendiente'

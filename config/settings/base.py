@@ -1,5 +1,6 @@
 import platform
 from datetime import timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import environ
@@ -53,6 +54,7 @@ INSTALLED_APPS = [
     'apps.notificaciones',
     'apps.suscripciones',
     'apps.facturacion',
+    'apps.pagos',
 ]
 
 MIDDLEWARE = [
@@ -237,3 +239,19 @@ MOBILE_APP_SECRET = env('MOBILE_APP_SECRET', default='')
 # a cuál pertenece. Token gratuito de solo lectura, ver apps/catalogo/ia.py.
 # ---------------------------------------------------------------------------
 HUGGINGFACE_API_TOKEN = env('HUGGINGFACE_API_TOKEN', default='')
+
+# ---------------------------------------------------------------------------
+# PayPal (checkout real + tarjetas guardadas del comprador, ver apps/pagos).
+# Bolivia no tiene Stripe, pero sí está en la lista de países soportados por
+# PayPal (incluso cuentas de negocio) — verificado contra la documentación
+# oficial. PAYPAL_MODE=sandbox usa el entorno de pruebas; 'live' cobraría de
+# verdad. BOB no es una moneda soportada por PayPal, así que el checkout
+# cobra en USD usando el tipo de cambio oficial boliviano fijo.
+# ---------------------------------------------------------------------------
+PAYPAL_CLIENT_ID = env('PAYPAL_CLIENT_ID', default='')
+PAYPAL_CLIENT_SECRET = env('PAYPAL_CLIENT_SECRET', default='')
+PAYPAL_MODE = env('PAYPAL_MODE', default='sandbox')
+PAYPAL_API_BASE = (
+    'https://api-m.sandbox.paypal.com' if PAYPAL_MODE == 'sandbox' else 'https://api-m.paypal.com'
+)
+TASA_CAMBIO_USD_BOB = Decimal('6.96')

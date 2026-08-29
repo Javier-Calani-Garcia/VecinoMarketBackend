@@ -5,9 +5,13 @@ from .views import (
     EditarInventarioAdminView,
     ListaInventarioAdminView,
     ListaSucursalesAdminView,
+    ListaSucursalesPublicoView,
 )
 
 urlpatterns = [
+    # Checkout (comprador): sucursales de una empresa para recojo en tienda
+    path('sucursales/', ListaSucursalesPublicoView.as_view(), name='sucursales-publico'),
+
     # CU10: gestión de inventario y stock (SuperAdmin/Admin de soporte)
     path('admin/sucursales/', ListaSucursalesAdminView.as_view(), name='admin-sucursales'),
     path('admin/inventario/', ListaInventarioAdminView.as_view(), name='admin-inventario'),

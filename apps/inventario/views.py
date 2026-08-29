@@ -2,6 +2,7 @@ from django.db import Error as DatabaseError
 from django.db import connection, models
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -37,6 +38,24 @@ class ListaSucursalesAdminView(generics.ListAPIView):
         if empresa_id:
             qs = qs.filter(empresa_id=empresa_id)
         return qs
+
+
+class ListaSucursalesPublicoView(generics.ListAPIView):
+    """El comprador ve las sucursales activas de una empresa (?empresa=<id>)
+    para elegir dónde recoger su pedido en el checkout — de solo lectura,
+    sin datos sensibles (nombre, dirección, teléfono)."""
+
+    permission_classes = [AllowAny]
+    serializer_class = SucursalAdminSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        empresa_id = self.request.query_params.get('empresa')
+        if not empresa_id:
+            return Sucursal.objects.none()
+        return Sucursal.objects.filter(
+            activo=True, estado=Sucursal.Estado.ACTIVA, empresa_id=empresa_id
+        ).order_by('nombre')
 
 
 class ListaInventarioAdminView(generics.ListAPIView):

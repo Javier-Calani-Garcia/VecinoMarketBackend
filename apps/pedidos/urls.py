@@ -1,11 +1,13 @@
 from django.urls import path
 
 from .views import (
+    ConfirmarPagoCheckoutView,
     DetalleCarritoAdminView,
     EditarEliminarEntregaAdminView,
     EditarEliminarMiEntregaView,
     EditarEliminarMiPedidoView,
     EditarEliminarPedidoAdminView,
+    IniciarCheckoutView,
     ListaCarritosAdminView,
     ListaEntregasAdminView,
     ListaMisComprasView,
@@ -41,4 +43,8 @@ urlpatterns = [
 
     # CU26: el comprador ve sus propios recibos de compra pagada
     path('mis-compras/', ListaMisComprasView.as_view(), name='mis-compras'),
+
+    # Checkout real (comprador): crea la orden real y abre el pago en PayPal
+    path('checkout/', IniciarCheckoutView.as_view(), name='iniciar-checkout'),
+    path('checkout/<int:orden_compra_id>/confirmar/', ConfirmarPagoCheckoutView.as_view(), name='confirmar-checkout'),
 ]

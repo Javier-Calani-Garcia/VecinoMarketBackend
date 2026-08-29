@@ -1,16 +1,25 @@
-from django.db import connection
-from django.db.models import Q
+from decimal import ROUND_HALF_UP, Decimal
+
+from django.conf import settings
+from django.db import connection, transaction
+from django.db.models import Q, Sum
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.auditoria.models import LogAuditoria
+from apps.catalogo.models import Producto
 from apps.core.utils import get_client_ip
+from apps.inventario.models import InventarioSucursal, Sucursal
+from apps.pagos.paypal_client import PaypalError
+from apps.pagos import paypal_client
+from apps.usuarios.models import Comprador, Direccion
 from apps.usuarios.permissions import EsAdmin, EsComprador, TienePermisoEmpleado
 
-from .models import Carrito, Entrega, OrdenCompra, Pedido
+from .models import Carrito, Entrega, OrdenCompra, Pago, Pedido, PedidoItem
 from .serializers import CarritoDetalleAdminSerializer, EntregaSerializer, PedidoSerializer
 
 
@@ -352,3 +361,172 @@ class ListaMisComprasView(generics.ListAPIView):
             orden_compra__comprador__usuario=self.request.user,
             orden_compra__estado_pago=OrdenCompra.EstadoPago.PAGADO,
         )
+
+
+def _numero_pedido():
+    with connection.cursor() as cursor:
+        cursor.execute('SELECT fn_generar_numero_pedido()')
+        return cursor.fetchone()[0]
+
+
+def _stock_disponible(producto_id):
+    return InventarioSucursal.objects.filter(producto_id=producto_id).aggregate(
+        total=Sum('cantidad_disponible')
+    )['total'] or 0
+
+
+def _descontar_stock(producto_id, cantidad, sucursal_id=None):
+    """Si hay una sucursal puntual (recojo en tienda) descuenta de ahí; si
+    no (envío a domicilio, no hay una sucursal específica todavía) descuenta
+    de la que tenga más stock. No es una asignación de inventario real
+    (eso es un problema aparte, multi-sucursal), es lo razonable para que
+    el stock total quede correcto tras la compra."""
+    qs = InventarioSucursal.objects.filter(producto_id=producto_id, cantidad_disponible__gte=cantidad)
+    registro = qs.filter(sucursal_id=sucursal_id).first() if sucursal_id else qs.order_by('-cantidad_disponible').first()
+    if not registro:
+        return False
+    registro.cantidad_disponible -= cantidad
+    registro.save(update_fields=['cantidad_disponible'])
+    return True
+
+
+class IniciarCheckoutView(APIView):
+    """CU12/CU26: crea la orden de compra real a partir del carrito
+    (dividida en un Pedido por empresa, como ya documentaba
+    OrdenCompra.__doc__) y abre la orden de pago en PayPal. El comprador
+    todavía no pagó — eso lo confirma ConfirmarPagoCheckoutView una vez
+    que el frontend completa CardFields (o de una si vino payment_token_id
+    de una tarjeta ya guardada)."""
+
+    permission_classes = [EsComprador]
+
+    def post(self, request):
+        items = request.data.get('items') or []
+        entregas = request.data.get('entregas') or {}
+        payment_token_id = request.data.get('payment_token_id')
+
+        if not items:
+            return Response({'detail': 'El carrito está vacío.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        comprador = get_object_or_404(Comprador, usuario=request.user)
+        producto_ids = [it['producto_id'] for it in items]
+        productos = {p.id: p for p in Producto.objects.select_related('empresa').filter(id__in=producto_ids)}
+
+        por_empresa = {}
+        for it in items:
+            producto = productos.get(it['producto_id'])
+            cantidad = int(it.get('cantidad', 0))
+            if not producto or cantidad <= 0:
+                return Response({'detail': 'Hay un producto inválido en el carrito.'}, status=status.HTTP_400_BAD_REQUEST)
+            if cantidad > _stock_disponible(producto.id):
+                return Response({'detail': f'"{producto.nombre}" no tiene suficiente stock.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            precio_unitario = producto.precio_descuento if producto.precio_descuento else producto.precio
+            grupo = por_empresa.setdefault(producto.empresa_id, {'empresa': producto.empresa, 'items': []})
+            grupo['items'].append({'producto': producto, 'cantidad': cantidad, 'precio_unitario': precio_unitario})
+
+        monto_total = sum(
+            it['cantidad'] * it['precio_unitario']
+            for grupo in por_empresa.values() for it in grupo['items']
+        )
+
+        try:
+            with transaction.atomic():
+                orden = OrdenCompra.objects.create(
+                    comprador=comprador, monto_total=monto_total,
+                    metodo_pago=OrdenCompra.MetodoPago.PAYPAL,
+                )
+
+                for empresa_id, grupo in por_empresa.items():
+                    entrega_cfg = entregas.get(str(empresa_id)) or {}
+                    modalidad = entrega_cfg.get('modalidad')
+                    sucursal = None
+                    direccion = None
+                    if modalidad == Pedido.ModalidadEntrega.RECOJO_TIENDA:
+                        sucursal = get_object_or_404(Sucursal, id=entrega_cfg.get('sucursal_id'), empresa_id=empresa_id)
+                    elif modalidad == Pedido.ModalidadEntrega.ENVIO_DOMICILIO:
+                        direccion = get_object_or_404(Direccion, id=entrega_cfg.get('direccion_id'), comprador=comprador)
+                    else:
+                        raise ValueError(f'Falta indicar cómo se entrega el pedido de {grupo["empresa"].razon_social}.')
+
+                    subtotal = sum(it['cantidad'] * it['precio_unitario'] for it in grupo['items'])
+                    pedido = Pedido.objects.create(
+                        orden_compra=orden, empresa_id=empresa_id, numero_pedido=_numero_pedido(),
+                        subtotal=subtotal, modalidad_entrega=modalidad,
+                        sucursal_recojo=sucursal, direccion_envio=direccion,
+                    )
+                    PedidoItem.objects.bulk_create([
+                        PedidoItem(
+                            pedido=pedido, producto=it['producto'], cantidad=it['cantidad'],
+                            precio_unitario=it['precio_unitario'], subtotal=it['cantidad'] * it['precio_unitario'],
+                        )
+                        for it in grupo['items']
+                    ])
+                    for it in grupo['items']:
+                        if not _descontar_stock(it['producto'].id, it['cantidad'], sucursal.id if sucursal else None):
+                            raise ValueError(f'"{it["producto"].nombre}" ya no tiene suficiente stock.')
+
+                monto_usd = (monto_total / settings.TASA_CAMBIO_USD_BOB).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                paypal_orden = paypal_client.crear_orden(monto_usd, payment_token_id)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except PaypalError as exc:
+            return Response({'detail': str(exc), 'paypal': exc.detalle}, status=status.HTTP_502_BAD_GATEWAY)
+
+        _log(request, 'INICIAR_CHECKOUT', orden.id, {'monto_total': str(monto_total), 'monto_usd': str(monto_usd)}, entidad_afectada='orden_compra')
+        return Response({
+            'orden_compra_id': orden.id,
+            'paypal_order_id': paypal_orden['id'],
+            'requiere_popup_paypal': payment_token_id is None,
+            'monto_usd': str(monto_usd),
+        }, status=status.HTTP_201_CREATED)
+
+
+class ConfirmarPagoCheckoutView(APIView):
+    """Segundo paso del checkout: confirma (captura) el pago en PayPal y
+    recién ahí marca la orden como PAGADO — antes de esto la orden ya
+    existe pero no cuenta como venta real (no aparece en 'Mis compras',
+    que filtra por estado_pago=PAGADO)."""
+
+    permission_classes = [EsComprador]
+
+    def post(self, request, orden_compra_id):
+        orden = get_object_or_404(
+            OrdenCompra, id=orden_compra_id, comprador__usuario=request.user,
+            estado_pago=OrdenCompra.EstadoPago.PENDIENTE,
+        )
+        paypal_order_id = request.data.get('paypal_order_id')
+        if not paypal_order_id:
+            return Response({'detail': 'Falta paypal_order_id.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            resultado = paypal_client.capturar_orden(paypal_order_id)
+        except PaypalError as exc:
+            orden.estado_pago = OrdenCompra.EstadoPago.FALLIDO
+            orden.save(update_fields=['estado_pago'])
+            Pago.objects.create(
+                orden_compra=orden, monto=orden.monto_total, metodo=Pago.Metodo.PAYPAL,
+                referencia_pasarela=paypal_order_id, estado=Pago.Estado.RECHAZADO,
+            )
+            return Response({'detail': str(exc), 'paypal': exc.detalle}, status=status.HTTP_502_BAD_GATEWAY)
+
+        aprobado = resultado.get('status') == 'COMPLETED'
+
+        with transaction.atomic():
+            if aprobado:
+                orden.estado_pago = OrdenCompra.EstadoPago.PAGADO
+                orden.pedidos.update(estado=Pedido.Estado.CONFIRMADO)
+            else:
+                orden.estado_pago = OrdenCompra.EstadoPago.FALLIDO
+            orden.save(update_fields=['estado_pago'])
+            Pago.objects.create(
+                orden_compra=orden, monto=orden.monto_total, metodo=Pago.Metodo.PAYPAL,
+                referencia_pasarela=paypal_order_id,
+                estado=Pago.Estado.APROBADO if aprobado else Pago.Estado.RECHAZADO,
+                fecha_pago=timezone.now() if aprobado else None,
+            )
+
+        _log(request, 'CONFIRMAR_PAGO', orden.id, {'aprobado': aprobado, 'paypal_order_id': paypal_order_id}, entidad_afectada='orden_compra')
+        if not aprobado:
+            return Response({'detail': 'PayPal no aprobó el pago.'}, status=status.HTTP_402_PAYMENT_REQUIRED)
+        return Response({'orden_compra_id': orden.id, 'numeros_pedido': list(orden.pedidos.values_list('numero_pedido', flat=True))})
