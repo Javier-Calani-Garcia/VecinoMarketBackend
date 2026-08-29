@@ -1,3 +1,4 @@
+from django.db import DatabaseError, connection
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -8,8 +9,8 @@ from apps.auditoria.models import LogAuditoria
 from apps.core.utils import get_client_ip
 from apps.usuarios.permissions import EsAdmin, TienePermisoEmpleado
 
-from .models import Factura, MetodoPago
-from .serializers import FacturaSerializer, MetodoPagoAdminSerializer, MetodoPagoEmpresaSerializer
+from .models import Factura, MetodoPago, Referido
+from .serializers import FacturaSerializer, MetodoPagoAdminSerializer, MetodoPagoEmpresaSerializer, ReferidoSerializer
 
 
 def _log(request, accion, entidad_id, detalle=None, entidad_afectada='metodo_pago'):
@@ -197,3 +198,55 @@ class EditarEliminarMiFacturaView(APIView):
         factura.delete()
         _log(request, 'ELIMINAR_FACTURA', factura_id, {}, entidad_afectada='factura')
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ListaReferidosAdminView(generics.ListAPIView):
+    """CU27: el SuperAdmin ve todos los referidos (qué empresa invitó a
+    cuál, y en qué estado va)."""
+
+    permission_classes = [EsAdmin]
+    serializer_class = ReferidoSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        qs = Referido.objects.select_related('empresa_referente', 'empresa_referida').order_by('-creado_en')
+        estado = self.request.query_params.get('estado')
+        if estado:
+            qs = qs.filter(estado=estado)
+        return qs
+
+
+class ConfirmarReferidoAdminView(APIView):
+    """CU27: confirma un referido y aplica el beneficio (30 días extra de
+    suscripción a la empresa que refirió) vía fn_confirmar_referido."""
+
+    permission_classes = [EsAdmin]
+
+    def post(self, request, referido_id):
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT fn_confirmar_referido(%s)', [referido_id])
+        except DatabaseError as exc:
+            return Response({'detail': str(exc).split('\n')[0]}, status=status.HTTP_400_BAD_REQUEST)
+
+        referido = get_object_or_404(Referido, id=referido_id)
+        _log(request, 'CONFIRMAR_REFERIDO', referido.id, {
+            'empresa_referente_id': referido.empresa_referente_id, 'empresa_referida_id': referido.empresa_referida_id,
+        }, entidad_afectada='referido')
+        return Response(ReferidoSerializer(referido).data)
+
+
+class ListaMisReferidosView(generics.ListAPIView):
+    """CU27: la empresa (dueño o empleado con permiso 'ver_reportes') ve
+    las empresas que ha referido y en qué estado va cada una — de solo
+    lectura, la confirmación es del SuperAdmin."""
+
+    permission_classes = [TienePermisoEmpleado]
+    permiso_requerido = 'ver_reportes'
+    serializer_class = ReferidoSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        return Referido.objects.filter(
+            empresa_referente=self.request.user.get_empresa()
+        ).select_related('empresa_referente', 'empresa_referida').order_by('-creado_en')

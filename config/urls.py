@@ -12,6 +12,9 @@ urlpatterns = [
     path('api/facturacion/', include('apps.facturacion.urls')),
     path('api/inventario/', include('apps.inventario.urls')),
     path('api/pedidos/', include('apps.pedidos.urls')),
+    path('api/reportes/', include('apps.reportes.urls')),
+    path('api/promociones/', include('apps.promociones.urls')),
+    path('api/comunicacion/', include('apps.comunicacion.urls')),
 ]
 
 if settings.DEBUG:

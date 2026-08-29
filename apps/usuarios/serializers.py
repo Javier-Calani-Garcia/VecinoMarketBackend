@@ -44,7 +44,7 @@ class LoginSerializer(TokenObtainPairSerializer):
 class SolicitudEmpresaSerializer(serializers.ModelSerializer):
     class Meta:
         model = SolicitudEmpresa
-        fields = ['id', 'razon_social', 'nit', 'documento_url', 'estado', 'motivo_rechazo', 'creado_en']
+        fields = ['id', 'razon_social', 'nit', 'documento_url', 'estado', 'motivo_rechazo', 'codigo_referido', 'creado_en']
         read_only_fields = ['id', 'estado', 'motivo_rechazo', 'creado_en']
 
     def create(self, validated_data):
@@ -64,12 +64,19 @@ class AprobarSolicitudSerializer(serializers.Serializer):
         solicitud = self.context['solicitud']
         admin = self.context['request'].user
 
+        referente = None
+        if solicitud.codigo_referido:
+            referente = Empresa.objects.filter(slug=solicitud.codigo_referido).exclude(
+                usuario_dueno=solicitud.usuario_solicitante
+            ).first()
+
         empresa = Empresa.objects.create(
             usuario_dueno=solicitud.usuario_solicitante,
             solicitud=solicitud,
             razon_social=solicitud.razon_social,
             nit=solicitud.nit,
             slug=self.validated_data['slug'],
+            referida_por=referente,
         )
 
         solicitud.usuario_solicitante.rol = Usuario.Rol.EMPRESA
@@ -184,11 +191,16 @@ class RegistrarUsuarioAdminSerializer(serializers.Serializer):
 
 class UsuarioSerializer(serializers.ModelSerializer):
     empresa_id = serializers.SerializerMethodField()
+    empresa_slug = serializers.SerializerMethodField()
 
     class Meta:
         model = Usuario
-        fields = ['id', 'email', 'nombre', 'apellido', 'telefono', 'rol', 'estado', 'empresa_id', 'fecha_registro']
+        fields = ['id', 'email', 'nombre', 'apellido', 'telefono', 'rol', 'estado', 'empresa_id', 'empresa_slug', 'fecha_registro']
         read_only_fields = fields
+
+    def get_empresa_slug(self, obj):
+        empresa = obj.get_empresa()
+        return empresa.slug if empresa else None
 
     def get_empresa_id(self, obj):
         empresa = obj.get_empresa()
@@ -358,6 +370,16 @@ class ConfirmarResetPasswordSerializer(serializers.Serializer):
         usuario.set_password(self.validated_data['password'])
         usuario.save(update_fields=['password'])
         return usuario
+
+
+class EmpresaPublicaSerializer(serializers.ModelSerializer):
+    """CU15/CU17: lo mínimo que puede ver cualquier visitante de una
+    empresa — nada administrativo (NIT, dueño, suscripción, etc.)."""
+
+    class Meta:
+        model = Empresa
+        fields = ['id', 'razon_social', 'slug', 'logo_url', 'ciudad']
+        read_only_fields = fields
 
 
 class EmpresaAdminSerializer(serializers.ModelSerializer):

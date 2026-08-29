@@ -13,6 +13,7 @@ from .views import (
     DesbloquearUsuarioView,
     EditarEliminarMiDireccionView,
     EditarEmpresaAdminView,
+    ListaEmpresasPublicoView,
     EditarUsuarioAdminView,
     EliminarRolBaseView,
     GoogleAuthView,
@@ -79,6 +80,7 @@ urlpatterns = [
     path('<int:usuario_id>/desbloquear/', DesbloquearUsuarioView.as_view(), name='desbloquear_usuario'),
 
     path('empresas/lista/', ListaEmpresasAdminView.as_view(), name='lista_empresas_admin'),
+    path('empresas/lista-publica/', ListaEmpresasPublicoView.as_view(), name='lista_empresas_publico'),
     path('empresas/<int:empresa_id>/editar/', EditarEmpresaAdminView.as_view(), name='editar_empresa_admin'),
     path('empresas/<int:empresa_id>/suspender/', SuspenderEmpresaView.as_view(), name='suspender_empresa'),
     path('empresas/<int:empresa_id>/reactivar/', ReactivarEmpresaView.as_view(), name='reactivar_empresa'),

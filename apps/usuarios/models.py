@@ -129,6 +129,10 @@ class SolicitudEmpresa(BaseModel):
     )
     motivo_rechazo = models.CharField(max_length=255, blank=True)
     fecha_revision = models.DateTimeField(null=True, blank=True)
+    codigo_referido = models.CharField(
+        max_length=80, blank=True,
+        help_text='CU27: slug de la empresa que lo invitó, si se registró con un código de referido.',
+    )
 
     class Meta:
         verbose_name = 'Solicitud de empresa'
@@ -163,6 +167,14 @@ class Empresa(BaseModel):
         'suscripciones.Plan', on_delete=models.SET_NULL, null=True, blank=True, related_name='empresas'
     )
     estado = models.CharField(max_length=20, choices=Estado.choices, default=Estado.ACTIVA)
+    referida_por = models.ForeignKey(
+        'self', on_delete=models.SET_NULL, null=True, blank=True, related_name='referidas',
+        help_text='CU27: empresa cuyo código de referido se usó al registrarse.',
+    )
+    bloqueo_live_hasta = models.DateTimeField(
+        null=True, blank=True,
+        help_text='CU17: si está en el futuro, la empresa no puede emitir en vivo (sanción por incumplimiento).',
+    )
 
     class Meta:
         verbose_name = 'Empresa'

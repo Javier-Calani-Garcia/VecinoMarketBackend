@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import ComisionVenta, Factura, MetodoPago
+from .models import ComisionVenta, Factura, MetodoPago, Referido
 
 
 class _MetodoPagoBaseSerializer(serializers.ModelSerializer):
@@ -68,3 +68,24 @@ class FacturaSerializer(serializers.ModelSerializer):
             'comisiones', 'creado_en',
         ]
         extra_kwargs = {'empresa': {'read_only': True}, 'tipo': {'read_only': True}}
+
+
+class ReferidoSerializer(serializers.ModelSerializer):
+    """CU27: una empresa refiere a otra pasándole su slug como "código de
+    referido" al registrarse (SolicitudEmpresa.codigo_referido) — se crea
+    sola en estado PENDIENTE (fn_crear_referido_por_empresa) cuando el
+    SuperAdmin aprueba esa solicitud. El SuperAdmin la confirma con
+    fn_confirmar_referido, que además le suma 30 días de suscripción a la
+    empresa que refirió."""
+
+    empresa_referente_nombre = serializers.CharField(source='empresa_referente.razon_social', read_only=True)
+    empresa_referida_nombre = serializers.CharField(source='empresa_referida.razon_social', read_only=True)
+
+    class Meta:
+        model = Referido
+        fields = [
+            'id', 'empresa_referente', 'empresa_referente_nombre',
+            'empresa_referida', 'empresa_referida_nombre',
+            'estado', 'beneficio_aplicado', 'creado_en',
+        ]
+        read_only_fields = fields

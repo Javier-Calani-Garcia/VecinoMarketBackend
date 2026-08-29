@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    ConfirmarReferidoAdminView,
     EditarEliminarFacturaAdminView,
     EditarEliminarMetodoPagoAdminView,
     EditarEliminarMiFacturaView,
@@ -9,6 +10,8 @@ from .views import (
     ListaCrearMisMetodosPagoView,
     ListaFacturasAdminView,
     ListaMisFacturasView,
+    ListaMisReferidosView,
+    ListaReferidosAdminView,
 )
 
 urlpatterns = [
@@ -27,4 +30,11 @@ urlpatterns = [
     # CU26: autogestión — la empresa sobre sus propias facturas
     path('mis-facturas/', ListaMisFacturasView.as_view(), name='mis-facturas'),
     path('mis-facturas/<int:factura_id>/', EditarEliminarMiFacturaView.as_view(), name='mi-factura-detalle'),
+
+    # CU27: programa de referidos (SuperAdmin/Admin de soporte)
+    path('admin/referidos/', ListaReferidosAdminView.as_view(), name='admin-referidos'),
+    path('admin/referidos/<int:referido_id>/confirmar/', ConfirmarReferidoAdminView.as_view(), name='admin-referido-confirmar'),
+
+    # CU27: la empresa ve las que ella refirió
+    path('mis-referidos/', ListaMisReferidosView.as_view(), name='mis-referidos'),
 ]

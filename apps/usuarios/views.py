@@ -29,6 +29,7 @@ from .serializers import (
     CrearEmpleadoSerializer,
     DireccionSerializer,
     EditarEmpresaAdminSerializer,
+    EmpresaPublicaSerializer,
     EditarUsuarioAdminSerializer,
     EmpleadoAdminSerializer,
     EmpresaAdminSerializer,
@@ -552,6 +553,23 @@ class DesbloquearUsuarioView(APIView):
 
         _log(request, 'DESBLOQUEAR_USUARIO', 'usuario', usuario.id)
         return Response({'detail': 'Usuario desbloqueado.'})
+
+
+class ListaEmpresasPublicoView(ListAPIView):
+    """CU15/CU17: cualquier visitante busca una empresa activa por nombre —
+    lo mínimo para elegir a cuál preguntarle al chatbot o ver si está en
+    vivo, sin exponer nada del detalle administrativo (EmpresaAdminSerializer)."""
+
+    permission_classes = [AllowAny]
+    serializer_class = EmpresaPublicaSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        qs = Empresa.objects.filter(estado=Empresa.Estado.ACTIVA).order_by('razon_social')
+        q = self.request.query_params.get('q', '').strip()
+        if q:
+            qs = qs.filter(razon_social__icontains=q)
+        return qs
 
 
 class ListaEmpresasAdminView(ListAPIView):
