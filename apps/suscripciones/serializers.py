@@ -16,6 +16,18 @@ class PlanSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class PlanAdminSerializer(serializers.ModelSerializer):
+    """CU20: el SuperAdmin crea y edita el catálogo de planes (a diferencia
+    de PlanSerializer, que es de solo lectura para la asignación en CU01)."""
+
+    class Meta:
+        model = Plan
+        fields = [
+            'id', 'nombre', 'precio_mensual', 'limite_productos',
+            'incluye_live_commerce', 'incluye_ia', 'porcentaje_comision', 'estado',
+        ]
+
+
 class SuscripcionSerializer(serializers.ModelSerializer):
     plan_nombre = serializers.CharField(source='plan.nombre', read_only=True)
 

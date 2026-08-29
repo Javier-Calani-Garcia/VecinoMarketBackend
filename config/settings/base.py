@@ -165,6 +165,10 @@ SIMPLE_JWT = {
 # CORS (ajustar dominios reales del frontend web/móvil en prod.py)
 # ---------------------------------------------------------------------------
 CORS_ALLOW_ALL_ORIGINS = env.bool('CORS_ALLOW_ALL_ORIGINS', default=True)
+# Para que el frontend pueda leer el nombre real del archivo al exportar
+# reportes (CU18/CU19) — por defecto el navegador oculta este header en
+# respuestas cross-origin aunque el backend lo mande.
+CORS_EXPOSE_HEADERS = ['Content-Disposition']
 
 # ---------------------------------------------------------------------------
 # Email (recuperación de contraseña, CU/T010). Vía Gmail SMTP con contraseña

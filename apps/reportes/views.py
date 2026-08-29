@@ -1,5 +1,6 @@
 from django.db import connection
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -10,8 +11,9 @@ from apps.pedidos.models import Pedido
 from apps.usuarios.models import Comprador, Empresa
 from apps.usuarios.permissions import EsAdmin, EsComprador, TienePermisoEmpleado
 
-from .models import Valoracion
-from .serializers import ValoracionSerializer
+from .exportadores import FORMATOS_VALIDOS, exportar_reporte
+from .models import RecomendacionIA, Valoracion
+from .serializers import RecomendacionIASerializer, ValoracionSerializer
 
 
 def _log(request, accion, entidad_id, detalle=None):
@@ -155,3 +157,360 @@ class EliminarValoracionAdminView(APIView):
         _log(request, 'MODERAR_VALORACION', valoracion_id, {'empresa_id': valoracion.empresa_id})
         valoracion.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ListaMisRecomendacionesView(generics.ListAPIView):
+    """CU21: el comprador ve sus recomendaciones — si todavía no se
+    generaron (o quiere refrescarlas), llama primero a
+    GenerarMisRecomendacionesView."""
+
+    permission_classes = [EsComprador]
+    serializer_class = RecomendacionIASerializer
+    pagination_class = None
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), 'request': self.request}
+
+    def get_queryset(self):
+        comprador = get_object_or_404(Comprador, usuario=self.request.user)
+        return RecomendacionIA.objects.filter(comprador=comprador).select_related('producto__empresa').prefetch_related('producto__imagenes').order_by('-score')
+
+
+class GenerarMisRecomendacionesView(APIView):
+    """CU21: regenera las recomendaciones del comprador autenticado vía
+    fn_generar_recomendaciones (filtrado colaborativo + respaldo por
+    popularidad) y las devuelve."""
+
+    permission_classes = [EsComprador]
+
+    def post(self, request):
+        comprador = get_object_or_404(Comprador, usuario=request.user)
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT fn_generar_recomendaciones(%s, %s)', [comprador.id, 10])
+            total = cursor.fetchone()[0]
+
+        recomendaciones = RecomendacionIA.objects.filter(comprador=comprador).select_related(
+            'producto__empresa'
+        ).prefetch_related('producto__imagenes').order_by('-score')
+        serializer = RecomendacionIASerializer(recomendaciones, many=True, context={'request': request})
+        return Response({'total': total, 'recomendaciones': serializer.data})
+
+
+def _ventas_por_dia(empresa_id, dias=14):
+    with connection.cursor() as cursor:
+        cursor.execute('SELECT dia, total_ventas, total_pedidos FROM fn_ventas_por_dia(%s, %s)', [empresa_id, dias])
+        return [
+            {'dia': row[0].isoformat(), 'total_ventas': float(row[1]), 'total_pedidos': row[2]}
+            for row in cursor.fetchall()
+        ]
+
+
+def _dashboard_admin():
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT rol, COUNT(*) FROM usuarios_usuario WHERE estado = 'ACTIVO' GROUP BY rol")
+        usuarios_por_rol = {row[0]: row[1] for row in cursor.fetchall()}
+
+        cursor.execute("SELECT estado, COUNT(*) FROM pedidos_pedido GROUP BY estado")
+        pedidos_por_estado = {row[0]: row[1] for row in cursor.fetchall()}
+
+        cursor.execute("""
+            SELECT COALESCE(SUM(p.subtotal), 0), COUNT(*)
+            FROM pedidos_pedido p
+            JOIN pedidos_ordencompra oc ON oc.id = p.orden_compra_id
+            WHERE oc.estado_pago = 'PAGADO'
+        """)
+        total_ventas, total_ventas_count = cursor.fetchone()
+
+        cursor.execute("SELECT COALESCE(SUM(monto_comision), 0) FROM facturacion_comisionventa")
+        total_comisiones = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COALESCE(ROUND(AVG(calificacion)::numeric, 2), 0) FROM reportes_valoracion WHERE activo = true")
+        valoracion_promedio = cursor.fetchone()[0]
+
+        cursor.execute("""
+            SELECT e.id, e.razon_social, SUM(p.subtotal) AS ventas
+            FROM pedidos_pedido p
+            JOIN pedidos_ordencompra oc ON oc.id = p.orden_compra_id
+            JOIN usuarios_empresa e ON e.id = p.empresa_id
+            WHERE oc.estado_pago = 'PAGADO'
+            GROUP BY e.id, e.razon_social
+            ORDER BY ventas DESC
+            LIMIT 5
+        """)
+        top_empresas = [{'empresa': row[1], 'ventas': float(row[2])} for row in cursor.fetchall()]
+
+        cursor.execute("""
+            SELECT prod.id, prod.nombre, SUM(pi.cantidad) AS unidades
+            FROM pedidos_pedidoitem pi
+            JOIN pedidos_pedido p ON p.id = pi.pedido_id
+            JOIN pedidos_ordencompra oc ON oc.id = p.orden_compra_id
+            JOIN catalogo_producto prod ON prod.id = pi.producto_id
+            WHERE oc.estado_pago = 'PAGADO'
+            GROUP BY prod.id, prod.nombre
+            ORDER BY unidades DESC
+            LIMIT 5
+        """)
+        top_productos = [{'producto': row[1], 'unidades': row[2]} for row in cursor.fetchall()]
+
+    return {
+        'total_empresas': Empresa.objects.count(),
+        'usuarios_por_rol': usuarios_por_rol,
+        'pedidos_por_estado': pedidos_por_estado,
+        'total_ventas': float(total_ventas),
+        'total_ventas_count': total_ventas_count,
+        'total_comisiones': float(total_comisiones),
+        'valoracion_promedio': float(valoracion_promedio),
+        'top_empresas': top_empresas,
+        'top_productos': top_productos,
+        'ventas_por_dia': _ventas_por_dia(None, 14),
+    }
+
+
+class DashboardAdminView(APIView):
+    """CU19: panel global del SuperAdmin — ventas, comisiones, usuarios,
+    empresas y lo más vendido de toda la plataforma."""
+
+    permission_classes = [EsAdmin]
+
+    def get(self, request):
+        return Response(_dashboard_admin())
+
+
+def _dashboard_empresa(empresa_id):
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            SELECT COALESCE(SUM(p.subtotal), 0), COUNT(*)
+            FROM pedidos_pedido p
+            JOIN pedidos_ordencompra oc ON oc.id = p.orden_compra_id
+            WHERE oc.estado_pago = 'PAGADO' AND p.empresa_id = %s
+        """, [empresa_id])
+        total_ventas, total_ventas_count = cursor.fetchone()
+
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM pedidos_pedido p
+            JOIN pedidos_ordencompra oc ON oc.id = p.orden_compra_id
+            WHERE oc.estado_pago = 'PENDIENTE' AND p.empresa_id = %s
+        """, [empresa_id])
+        pedidos_pendientes = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COALESCE(SUM(monto_comision), 0) FROM facturacion_comisionventa WHERE empresa_id = %s", [empresa_id])
+        total_comisiones = cursor.fetchone()[0]
+
+        cursor.execute(
+            "SELECT promedio, total FROM fn_resumen_valoraciones_empresa(%s)", [empresa_id]
+        )
+        row = cursor.fetchone()
+        valoracion_promedio, total_valoraciones = (float(row[0]), row[1]) if row else (0, 0)
+
+        cursor.execute("""
+            SELECT prod.id, prod.nombre, SUM(pi.cantidad) AS unidades
+            FROM pedidos_pedidoitem pi
+            JOIN pedidos_pedido p ON p.id = pi.pedido_id
+            JOIN pedidos_ordencompra oc ON oc.id = p.orden_compra_id
+            JOIN catalogo_producto prod ON prod.id = pi.producto_id
+            WHERE oc.estado_pago = 'PAGADO' AND p.empresa_id = %s
+            GROUP BY prod.id, prod.nombre
+            ORDER BY unidades DESC
+            LIMIT 5
+        """, [empresa_id])
+        top_productos = [{'producto': row[1], 'unidades': row[2]} for row in cursor.fetchall()]
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM catalogo_producto WHERE empresa_id = %s AND activo = true AND estado = 'ACTIVO'",
+            [empresa_id],
+        )
+        productos_activos = cursor.fetchone()[0]
+
+    return {
+        'productos_activos': productos_activos,
+        'total_ventas': float(total_ventas),
+        'total_ventas_count': total_ventas_count,
+        'pedidos_pendientes': pedidos_pendientes,
+        'total_comisiones': float(total_comisiones),
+        'valoracion_promedio': valoracion_promedio,
+        'total_valoraciones': total_valoraciones,
+        'top_productos': top_productos,
+        'ventas_por_dia': _ventas_por_dia(empresa_id, 14),
+    }
+
+
+class DashboardEmpresaView(APIView):
+    """CU18: panel de la empresa (dueño o empleado con permiso
+    'ver_reportes') — sus propias ventas, pedidos pendientes, reputación
+    y lo más vendido."""
+
+    permission_classes = [TienePermisoEmpleado]
+    permiso_requerido = 'ver_reportes'
+
+    def get(self, request):
+        empresa = request.user.get_empresa()
+        return Response(_dashboard_empresa(empresa.id))
+
+
+class ListaEmpresasDashboardAdminView(APIView):
+    """CU18: el SuperAdmin elige una empresa (buscador) antes de entrar a
+    ver su dashboard — mismo patrón que CU04/CU16."""
+
+    permission_classes = [EsAdmin]
+
+    def get(self, request):
+        empresas = Empresa.objects.all().order_by('razon_social')
+        q = request.query_params.get('q', '').strip()
+        if q:
+            empresas = empresas.filter(razon_social__icontains=q)
+        return Response([
+            {'id': e.id, 'razon_social': e.razon_social, 'slug': e.slug, 'logo_url': e.logo_url, 'ciudad': e.ciudad}
+            for e in empresas
+        ])
+
+
+class DashboardEmpresaAdminView(APIView):
+    """CU18: el SuperAdmin ve el dashboard de una empresa puntual (solo
+    lectura — las métricas se calculan de los datos reales, no se editan)."""
+
+    permission_classes = [EsAdmin]
+
+    def get(self, request, empresa_id):
+        empresa = get_object_or_404(Empresa, id=empresa_id)
+        datos = _dashboard_empresa(empresa.id)
+        datos['empresa'] = {'id': empresa.id, 'razon_social': empresa.razon_social, 'logo_url': empresa.logo_url}
+        return Response(datos)
+
+
+def _secciones_dashboard_empresa(datos):
+    return [
+        {
+            'titulo': 'Resumen',
+            'headers': ['Métrica', 'Valor'],
+            'filas': [
+                ['Ventas totales (Bs)', f"{datos['total_ventas']:.2f}"],
+                ['Pedidos pagados', datos['total_ventas_count']],
+                ['Pedidos pendientes de pago', datos['pedidos_pendientes']],
+                ['Productos activos', datos['productos_activos']],
+                ['Comisión pagada a la plataforma (Bs)', f"{datos['total_comisiones']:.2f}"],
+                [
+                    'Valoración promedio',
+                    f"{datos['valoracion_promedio']} ★ ({datos['total_valoraciones']} reseñas)"
+                    if datos['total_valoraciones'] else 'Sin reseñas',
+                ],
+            ],
+        },
+        {
+            'titulo': 'Ventas de los últimos 14 días',
+            'headers': ['Día', 'Ventas (Bs)', 'Pedidos'],
+            'filas': [[d['dia'], f"{d['total_ventas']:.2f}", d['total_pedidos']] for d in datos['ventas_por_dia']],
+        },
+        {
+            'titulo': 'Productos más vendidos',
+            'headers': ['Producto', 'Unidades vendidas'],
+            'filas': [[p['producto'], p['unidades']] for p in datos['top_productos']],
+        },
+    ]
+
+
+def _secciones_dashboard_admin(datos):
+    return [
+        {
+            'titulo': 'Resumen de la plataforma',
+            'headers': ['Métrica', 'Valor'],
+            'filas': [
+                ['Ventas totales (Bs)', f"{datos['total_ventas']:.2f}"],
+                ['Cantidad de ventas pagadas', datos['total_ventas_count']],
+                ['Comisiones cobradas (Bs)', f"{datos['total_comisiones']:.2f}"],
+                ['Empresas registradas', datos['total_empresas']],
+                ['Valoración promedio de la plataforma', f"{datos['valoracion_promedio']} ★"],
+            ],
+        },
+        {
+            'titulo': 'Ventas de los últimos 14 días',
+            'headers': ['Día', 'Ventas (Bs)', 'Pedidos'],
+            'filas': [[d['dia'], f"{d['total_ventas']:.2f}", d['total_pedidos']] for d in datos['ventas_por_dia']],
+        },
+        {
+            'titulo': 'Top empresas por ventas',
+            'headers': ['Empresa', 'Ventas (Bs)'],
+            'filas': [[e['empresa'], f"{e['ventas']:.2f}"] for e in datos['top_empresas']],
+        },
+        {
+            'titulo': 'Productos más vendidos',
+            'headers': ['Producto', 'Unidades vendidas'],
+            'filas': [[p['producto'], p['unidades']] for p in datos['top_productos']],
+        },
+        {
+            'titulo': 'Usuarios activos por rol',
+            'headers': ['Rol', 'Cantidad'],
+            'filas': [[rol, total] for rol, total in datos['usuarios_por_rol'].items()],
+        },
+        {
+            'titulo': 'Pedidos por estado',
+            'headers': ['Estado', 'Cantidad'],
+            'filas': [[estado, total] for estado, total in datos['pedidos_por_estado'].items()],
+        },
+    ]
+
+
+def _validar_formato(request):
+    formato = request.query_params.get('formato', 'pdf').lower()
+    if formato not in FORMATOS_VALIDOS:
+        return None, Response(
+            {'detail': 'Formato inválido. Usa csv, xlsx o pdf.'}, status=status.HTTP_400_BAD_REQUEST
+        )
+    return formato, None
+
+
+class DashboardEmpresaExportarView(APIView):
+    """CU18: la empresa exporta su propio dashboard a csv/xlsx/pdf."""
+
+    permission_classes = [TienePermisoEmpleado]
+    permiso_requerido = 'ver_reportes'
+
+    def get(self, request):
+        formato, error = _validar_formato(request)
+        if error:
+            return error
+        empresa = request.user.get_empresa()
+        datos = _dashboard_empresa(empresa.id)
+        return exportar_reporte(
+            formato, f'reporte_{empresa.slug}',
+            f'Reporte de {empresa.razon_social}',
+            f'VecinoMarket · Generado el {timezone.now().strftime("%d/%m/%Y %H:%M")}',
+            _secciones_dashboard_empresa(datos),
+        )
+
+
+class DashboardEmpresaAdminExportarView(APIView):
+    """CU18: el SuperAdmin exporta el dashboard de una empresa puntual."""
+
+    permission_classes = [EsAdmin]
+
+    def get(self, request, empresa_id):
+        formato, error = _validar_formato(request)
+        if error:
+            return error
+        empresa = get_object_or_404(Empresa, id=empresa_id)
+        datos = _dashboard_empresa(empresa.id)
+        return exportar_reporte(
+            formato, f'reporte_{empresa.slug}',
+            f'Reporte de {empresa.razon_social}',
+            f'VecinoMarket · Generado el {timezone.now().strftime("%d/%m/%Y %H:%M")}',
+            _secciones_dashboard_empresa(datos),
+        )
+
+
+class DashboardAdminExportarView(APIView):
+    """CU19: el SuperAdmin exporta el dashboard administrativo global."""
+
+    permission_classes = [EsAdmin]
+
+    def get(self, request):
+        formato, error = _validar_formato(request)
+        if error:
+            return error
+        datos = _dashboard_admin()
+        return exportar_reporte(
+            formato, 'reporte_administrativo',
+            'Reporte administrativo de VecinoMarket',
+            f'Generado el {timezone.now().strftime("%d/%m/%Y %H:%M")}',
+            _secciones_dashboard_admin(datos),
+        )
