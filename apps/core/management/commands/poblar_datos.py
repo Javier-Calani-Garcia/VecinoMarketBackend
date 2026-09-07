@@ -127,11 +127,14 @@ COMPRADORES = [
 ]
 
 
-# Palabras clave verificadas manualmente (ver Frontend/frontend_web/src/data
-# antes de que se reemplazara por la API real): loremflickr.com filtra fotos
-# de Flickr por estas palabras, a diferencia de picsum.photos que da fotos
-# totalmente al azar sin relación con el producto. El `lock=1` fija siempre
-# la misma foto revisada en vez de una nueva al azar en cada corrida.
+# Palabras clave verificadas manualmente para que loremflickr.com filtre
+# fotos relacionadas al producto (a diferencia de picsum.photos, que da fotos
+# totalmente al azar sin relación). OJO: loremflickr falla con 500 de forma
+# intermitente y aleatoria (no son estas palabras puntuales las rotas, es el
+# servicio en si) — es una decisión consciente priorizar que la foto tenga
+# relación con el producto por sobre el 100% de disponibilidad. Sin `lock=1`
+# para que una corrida nueva del seed pueda traer otra foto si la anterior
+# quedó fallando.
 IMAGEN_KEYWORDS = {
     'Pan integral artesanal (bolsa x6)': 'wholewheat,bread,loaf',
     'Empanadas de queso (docena)': 'empanada,pastry',
@@ -147,20 +150,20 @@ IMAGEN_KEYWORDS = {
     'Tejido de tapiz andino (pequeño)': 'woven,tapestry,textile',
     'Jabón artesanal de miel y avena': 'olive,soap',
     'Aceite esencial de eucalipto': 'eucalyptus,leaves',
-    'Funda protectora para laptop 15"': 'laptop,case',
+    'Funda protectora para laptop 15"': 'laptop,bag',
     'Audífonos inalámbricos': 'wireless,headphones',
-    'Cama para perro mediana': 'puppy,bed',
-    'Snacks naturales para gato (bolsa)': 'cat,food,treats',
-    'Set de destornilladores (12 piezas)': 'screwdriver,toolbox',
-    'Candado de seguridad reforzado': 'padlock',
-    'Rompecabezas de madera (100 piezas)': 'jigsaw,puzzle,wooden',
-    'Set de bloques de construcción': 'wooden,blocks,toy',
+    'Cama para perro mediana': 'dog,bed',
+    'Snacks naturales para gato (bolsa)': 'cat,food',
+    'Set de destornilladores (12 piezas)': 'toolbox',
+    'Candado de seguridad reforzado': 'security,lock',
+    'Rompecabezas de madera (100 piezas)': 'wooden,puzzle',
+    'Set de bloques de construcción': 'building,blocks',
 }
 
 
 def img_url(nombre):
     keyword = IMAGEN_KEYWORDS.get(nombre, 'shopping,product')
-    return f'https://loremflickr.com/600/600/{keyword}?lock=1'
+    return f'https://loremflickr.com/600/600/{keyword}'
 
 
 class Command(BaseCommand):
@@ -349,7 +352,7 @@ class Command(BaseCommand):
                     'precio_descuento': Decimal(precio_descuento) if precio_descuento else None,
                 },
             )
-            ProductoImagen.objects.get_or_create(
+            ProductoImagen.objects.update_or_create(
                 producto=producto, orden=1, defaults={'url': img_url(nombre)}
             )
             InventarioSucursal.objects.get_or_create(

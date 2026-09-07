@@ -277,7 +277,23 @@ class CambiarRolSerializer(serializers.Serializer):
         return usuario, rol_anterior
 
 
-class EditarEmpresaAdminSerializer(serializers.ModelSerializer):
+class LogoUrlAbsolutoMixin:
+    """Convierte 'logo_url' a URL absoluta al serializar, igual que
+    ProductoImagenSerializer.get_url(). Necesario porque cuando el storage
+    cae a disco local (Cloudinary sin configurar), default_storage.url()
+    devuelve una ruta relativa ("/media/...") que Image.network() en la
+    app movil no puede resolver."""
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        logo = data.get('logo_url')
+        if request and logo and logo.startswith('/'):
+            data['logo_url'] = request.build_absolute_uri(logo)
+        return data
+
+
+class EditarEmpresaAdminSerializer(LogoUrlAbsolutoMixin, serializers.ModelSerializer):
     """CU01: el SuperAdmin puede editar cualquier dato de la empresa (antes
     solo se podía suspender/reactivar)."""
 
@@ -294,7 +310,7 @@ class EditarEmpresaAdminSerializer(serializers.ModelSerializer):
         return value
 
 
-class EditarMiEmpresaSerializer(serializers.ModelSerializer):
+class EditarMiEmpresaSerializer(LogoUrlAbsolutoMixin, serializers.ModelSerializer):
     """La empresa edita su propio perfil — a diferencia de
     EditarEmpresaAdminSerializer, no incluye 'slug' (identidad de URL) ni
     'estado' (suspensión/moderación), que siguen siendo solo del SuperAdmin."""
@@ -382,7 +398,7 @@ class ConfirmarResetPasswordSerializer(serializers.Serializer):
         return usuario
 
 
-class EmpresaPublicaSerializer(serializers.ModelSerializer):
+class EmpresaPublicaSerializer(LogoUrlAbsolutoMixin, serializers.ModelSerializer):
     """CU15/CU17: lo mínimo que puede ver cualquier visitante de una
     empresa — nada administrativo (NIT, dueño, suscripción, etc.)."""
 
