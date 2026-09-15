@@ -1,3 +1,5 @@
+import logging
+
 from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
 from django.contrib.gis.geos import Point
@@ -13,6 +15,8 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from apps.suscripciones.models import Plan, Suscripcion
 
 from .models import Comprador, Direccion, Empleado, Empresa, Permiso, RolBase, SolicitudEmpresa, Usuario
+
+logger = logging.getLogger(__name__)
 
 
 class LoginSerializer(TokenObtainPairSerializer):
@@ -357,19 +361,23 @@ class SolicitarResetPasswordSerializer(serializers.Serializer):
         token = default_token_generator.make_token(usuario)
         link = f'{settings.FRONTEND_URL}/restablecer-password?uid={uid}&token={token}'
 
-        send_mail(
-            'Recupera tu contraseña — VecinoMarket',
-            (
-                f'Hola {usuario.nombre},\n\n'
-                'Recibimos una solicitud para restablecer tu contraseña en VecinoMarket. '
-                'Si fuiste tú, entra al siguiente link para elegir una nueva:\n\n'
-                f'{link}\n\n'
-                'Si no fuiste tú, puedes ignorar este correo — tu contraseña actual sigue siendo válida.'
-            ),
-            settings.DEFAULT_FROM_EMAIL,
-            [usuario.correo_recuperacion or usuario.email],
-            fail_silently=True,
-        )
+        destinatario = usuario.correo_recuperacion or usuario.email
+        try:
+            send_mail(
+                'Recupera tu contraseña — VecinoMarket',
+                (
+                    f'Hola {usuario.nombre},\n\n'
+                    'Recibimos una solicitud para restablecer tu contraseña en VecinoMarket. '
+                    'Si fuiste tú, entra al siguiente link para elegir una nueva:\n\n'
+                    f'{link}\n\n'
+                    'Si no fuiste tú, puedes ignorar este correo — tu contraseña actual sigue siendo válida.'
+                ),
+                settings.DEFAULT_FROM_EMAIL,
+                [destinatario],
+                fail_silently=False,
+            )
+        except Exception:
+            logger.exception('No se pudo enviar el correo de reset de password a %s', destinatario)
         return usuario
 
 

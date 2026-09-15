@@ -3,6 +3,7 @@ compartida por los 3 caminos que la disparan — solicitud con plan Prueba
 (automática), solicitud con plan Básico/Premium (tras pagar en PayPal) y
 alta directa del SuperAdmin. La empresa siempre es una cuenta nueva y
 separada de la del comprador que hizo la solicitud (si la hubo)."""
+import logging
 from datetime import timedelta
 
 from django.conf import settings
@@ -15,6 +16,8 @@ from apps.facturacion.models import Factura
 from apps.suscripciones.models import Suscripcion
 
 from .models import Empresa, Usuario
+
+logger = logging.getLogger(__name__)
 
 _ALFABETO_PASSWORD = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789'
 
@@ -84,21 +87,25 @@ def crear_cuenta_empresa(razon_social, nit, correo_empresa, plan, documento_url=
             estado_pago=Factura.EstadoPago.PAGADA, fecha_pago=ahora,
         )
 
-    send_mail(
-        'Tu cuenta de empresa en VecinoMarket',
-        (
-            f'Hola,\n\n'
-            f'Tu cuenta de empresa "{razon_social}" ya está activa con el plan {plan.nombre}.\n\n'
-            'Estas son tus credenciales de acceso:\n'
-            f'  Correo: {correo_empresa}\n'
-            f'  Contraseña temporal: {password}\n\n'
-            'Esta contraseña es temporal: por seguridad, cámbiala desde tu panel de '
-            'empresa dentro de los próximos 30 días.\n\n'
-            f'Ingresa aquí: {settings.FRONTEND_URL}/login'
-        ),
-        settings.DEFAULT_FROM_EMAIL,
-        [correo_recuperacion or correo_empresa],
-        fail_silently=True,
-    )
+    destinatario = correo_recuperacion or correo_empresa
+    try:
+        send_mail(
+            'Tu cuenta de empresa en VecinoMarket',
+            (
+                f'Hola,\n\n'
+                f'Tu cuenta de empresa "{razon_social}" ya está activa con el plan {plan.nombre}.\n\n'
+                'Estas son tus credenciales de acceso:\n'
+                f'  Correo: {correo_empresa}\n'
+                f'  Contraseña temporal: {password}\n\n'
+                'Esta contraseña es temporal: por seguridad, cámbiala desde tu panel de '
+                'empresa dentro de los próximos 30 días.\n\n'
+                f'Ingresa aquí: {settings.FRONTEND_URL}/login'
+            ),
+            settings.DEFAULT_FROM_EMAIL,
+            [destinatario],
+            fail_silently=False,
+        )
+    except Exception:
+        logger.exception('No se pudo enviar el correo de credenciales de empresa a %s', destinatario)
 
     return usuario, empresa, suscripcion
