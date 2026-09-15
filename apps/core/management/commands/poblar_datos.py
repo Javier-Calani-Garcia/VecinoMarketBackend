@@ -214,28 +214,13 @@ class Command(BaseCommand):
         return permisos
 
     def _seed_planes(self):
-        plan, _ = Plan.objects.get_or_create(
-            nombre='Plan Básico',
-            defaults={
-                'precio_mensual': Decimal('49.90'),
-                'limite_productos': 50,
-                'incluye_live_commerce': False,
-                'incluye_ia': True,
-                'porcentaje_comision': Decimal('3.5'),
-            },
-        )
-        Plan.objects.get_or_create(
-            nombre='Plan Premium',
-            defaults={
-                'precio_mensual': Decimal('129.90'),
-                'limite_productos': None,
-                'incluye_live_commerce': True,
-                'incluye_ia': True,
-                'porcentaje_comision': Decimal('2.0'),
-            },
-        )
-        self.stdout.write('Planes: 2')
-        return plan
+        """CU01: usa los 3 planes canónicos de autoservicio (sembrados por la
+        migración de datos 0006, identificados por 'codigo') en vez de crear
+        planes de demo aparte — antes este método creaba 'Plan Básico'/'Plan
+        Premium' como filas propias, que terminaban duplicando (incluso con
+        el mismo precio) a los planes reales que ve el admin al asignar
+        suscripción."""
+        return Plan.objects.get(codigo='BASICO')
 
     def _seed_categorias(self):
         categorias = {}

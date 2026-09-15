@@ -8,6 +8,7 @@ from .views import (
     CambiarRolUsuarioView,
     ConfirmarResetPasswordView,
     CrearEmpleadoView,
+    CrearEmpresaDirectaAdminView,
     DesactivarEmpleadoAdminView,
     DesactivarEmpleadoView,
     DesbloquearUsuarioView,
@@ -40,6 +41,8 @@ from .views import (
     RegistrarUsuarioAdminView,
     RegistroCompradorView,
     RestablecerPasswordAdminView,
+    SolicitarEmpresaCheckoutView,
+    SolicitarEmpresaConfirmarView,
     SolicitarEmpresaView,
     SolicitarResetPasswordView,
     SuspenderEmpresaView,
@@ -56,6 +59,8 @@ urlpatterns = [
     path('auth/confirmar-reset/', ConfirmarResetPasswordView.as_view(), name='confirmar_reset_password'),
 
     path('solicitudes-empresa/', SolicitarEmpresaView.as_view(), name='solicitar_empresa'),
+    path('solicitudes-empresa/checkout/', SolicitarEmpresaCheckoutView.as_view(), name='solicitar_empresa_checkout'),
+    path('solicitudes-empresa/checkout/<int:solicitud_id>/confirmar/', SolicitarEmpresaConfirmarView.as_view(), name='solicitar_empresa_confirmar'),
     path('solicitudes-empresa/lista/', ListaSolicitudesEmpresaView.as_view(), name='lista_solicitudes_empresa'),
     path('solicitudes-empresa/<int:solicitud_id>/aprobar/', AprobarSolicitudEmpresaView.as_view(), name='aprobar_solicitud_empresa'),
     path('solicitudes-empresa/<int:solicitud_id>/rechazar/', RechazarSolicitudEmpresaView.as_view(), name='rechazar_solicitud_empresa'),
@@ -86,6 +91,7 @@ urlpatterns = [
     path('<int:usuario_id>/bloquear/', BloquearUsuarioView.as_view(), name='bloquear_usuario'),
     path('<int:usuario_id>/desbloquear/', DesbloquearUsuarioView.as_view(), name='desbloquear_usuario'),
 
+    path('empresas/crear-directa/', CrearEmpresaDirectaAdminView.as_view(), name='crear_empresa_directa_admin'),
     path('empresas/lista/', ListaEmpresasAdminView.as_view(), name='lista_empresas_admin'),
     path('empresas/lista-publica/', ListaEmpresasPublicoView.as_view(), name='lista_empresas_publico'),
     path('empresas/<int:empresa_id>/editar/', EditarEmpresaAdminView.as_view(), name='editar_empresa_admin'),

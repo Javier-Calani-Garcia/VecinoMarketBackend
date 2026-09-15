@@ -10,15 +10,12 @@ from google.oauth2 import id_token as google_id_token
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from apps.core.utils import RecaptchaError, verificar_recaptcha
-from apps.suscripciones.models import Suscripcion
+from apps.suscripciones.models import Plan, Suscripcion
 
 from .models import Comprador, Direccion, Empleado, Empresa, Permiso, RolBase, SolicitudEmpresa, Usuario
 
 
 class LoginSerializer(TokenObtainPairSerializer):
-    recaptcha_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
-
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
@@ -29,12 +26,6 @@ class LoginSerializer(TokenObtainPairSerializer):
         return token
 
     def validate(self, attrs):
-        token = attrs.pop('recaptcha_token', '')
-        try:
-            verificar_recaptcha(token, request=self.context.get('request'))
-        except RecaptchaError as error:
-            raise serializers.ValidationError({'recaptcha_token': str(error)})
-
         data = super().validate(attrs)
         if self.user.estado != Usuario.Estado.ACTIVO:
             raise serializers.ValidationError('El usuario no está activo.')
@@ -42,10 +33,30 @@ class LoginSerializer(TokenObtainPairSerializer):
 
 
 class SolicitudEmpresaSerializer(serializers.ModelSerializer):
+    """CU01: solicitud de cuenta de empresa con el plan Prueba — se aprueba
+    sola (SolicitarEmpresaView crea la cuenta de una). Los planes Básico y
+    Premium requieren pago y pasan por SolicitarEmpresaCheckoutView en vez
+    de este serializer."""
+
+    plan_id = serializers.PrimaryKeyRelatedField(
+        queryset=Plan.objects.filter(estado=Plan.Estado.ACTIVO), source='plan'
+    )
+    plan_nombre = serializers.CharField(source='plan.nombre', read_only=True)
+
     class Meta:
         model = SolicitudEmpresa
-        fields = ['id', 'razon_social', 'nit', 'documento_url', 'estado', 'motivo_rechazo', 'codigo_referido', 'creado_en']
-        read_only_fields = ['id', 'estado', 'motivo_rechazo', 'creado_en']
+        fields = [
+            'id', 'razon_social', 'nit', 'documento_url', 'plan_id', 'plan_nombre',
+            'estado', 'motivo_rechazo', 'codigo_referido', 'creado_en',
+        ]
+        read_only_fields = ['id', 'plan_nombre', 'estado', 'motivo_rechazo', 'creado_en']
+
+    def validate_plan_id(self, plan):
+        if plan.codigo != Plan.Codigo.PRUEBA:
+            raise serializers.ValidationError(
+                'Este plan requiere pago — usa el checkout de planes en vez de esta solicitud directa.'
+            )
+        return plan
 
     def create(self, validated_data):
         usuario = self.context['request'].user
@@ -137,20 +148,11 @@ class RegistroCompradorSerializer(serializers.Serializer):
     apellido = serializers.CharField(max_length=100, required=False, allow_blank=True)
     telefono = serializers.CharField(max_length=20, required=False, allow_blank=True)
     password = serializers.CharField(write_only=True, min_length=8)
-    recaptcha_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     def validate_email(self, value):
         if Usuario.objects.filter(email=value).exists():
             raise serializers.ValidationError('Ya existe un usuario con ese email.')
         return value
-
-    def validate(self, attrs):
-        token = attrs.pop('recaptcha_token', '')
-        try:
-            verificar_recaptcha(token, request=self.context.get('request'))
-        except RecaptchaError as error:
-            raise serializers.ValidationError({'recaptcha_token': str(error)})
-        return attrs
 
     def create(self, validated_data):
         password = validated_data.pop('password')
@@ -165,7 +167,7 @@ class RegistroCompradorSerializer(serializers.Serializer):
 
 class RegistrarUsuarioAdminSerializer(serializers.Serializer):
     """CU02: el ADMIN registra una cuenta de comprador directamente desde su
-    panel (sin reCAPTCHA, ya viene autenticado como admin)."""
+    panel."""
 
     email = serializers.EmailField()
     nombre = serializers.CharField(max_length=100)
@@ -422,6 +424,7 @@ class EmpresaAdminSerializer(serializers.ModelSerializer):
     dueno_nombre = serializers.CharField(source='usuario_dueno.nombre', read_only=True)
     plan_nombre = serializers.CharField(source='plan.nombre', read_only=True, default=None)
     estado_suscripcion = serializers.SerializerMethodField()
+    fecha_inicio = serializers.SerializerMethodField()
     fecha_vencimiento = serializers.SerializerMethodField()
 
     class Meta:
@@ -429,7 +432,7 @@ class EmpresaAdminSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'razon_social', 'nit', 'slug', 'ciudad', 'departamento',
             'estado', 'dueno_email', 'dueno_nombre', 'creado_en', 'plan',
-            'plan_nombre', 'estado_suscripcion', 'fecha_vencimiento',
+            'plan_nombre', 'estado_suscripcion', 'fecha_inicio', 'fecha_vencimiento',
         ]
         read_only_fields = fields
 
@@ -440,9 +443,12 @@ class EmpresaAdminSerializer(serializers.ModelSerializer):
         if vencimiento is None:
             return 'SOLICITANDO_SUSCRIPCION'
         estado = getattr(empresa, '_susc_estado', None)
-        if estado != Suscripcion.Estado.ACTIVA or vencimiento < timezone.now().date():
+        if estado != Suscripcion.Estado.ACTIVA or vencimiento < timezone.now():
             return 'EXPIRADA'
         return 'ACTIVA'
+
+    def get_fecha_inicio(self, empresa):
+        return getattr(empresa, '_susc_inicio', None)
 
     def get_fecha_vencimiento(self, empresa):
         return getattr(empresa, '_susc_vencimiento', None)

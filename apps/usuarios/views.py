@@ -1,3 +1,7 @@
+from datetime import timedelta
+from decimal import ROUND_HALF_UP, Decimal
+
+from django.conf import settings
 from django.core.files.storage import default_storage
 from django.db import connection
 from django.db.models import OuterRef, Q, Subquery
@@ -17,7 +21,10 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 
 from apps.auditoria.models import LogAuditoria
 from apps.core.utils import get_client_ip
-from apps.suscripciones.models import Suscripcion
+from apps.notificaciones.models import Notificacion
+from apps.pagos import paypal_client
+from apps.pagos.paypal_client import PaypalError
+from apps.suscripciones.models import Plan, Suscripcion
 
 from .models import Comprador, Direccion, Empleado, EmpleadoPermiso, Empresa, Permiso, RolBase, RolBasePermiso, SolicitudEmpresa, Usuario
 from .permissions import EsAdmin, EsComprador, EsEmpresa, EsSuperAdmin
@@ -48,6 +55,7 @@ from .serializers import (
     SolicitudEmpresaSerializer,
     UsuarioSerializer,
 )
+from .services import crear_cuenta_empresa, generar_correo_empresa
 
 
 class AdminPagination(PageNumberPagination):
@@ -67,6 +75,35 @@ def _log(request, accion, entidad_afectada=None, entidad_id=None, detalle=None, 
     )
 
 
+def _verificar_aviso_vencimiento(empresa):
+    """CU01: si la suscripción vigente de la empresa vence mañana, crea (una
+    sola vez) la notificación de aviso — se revisa "on-access" al hacer
+    login, ya que en el plan free de Render no hay Cron Jobs para un chequeo
+    diario real."""
+    suscripcion = Suscripcion.objects.filter(empresa=empresa).order_by('-fecha_vencimiento').first()
+    if suscripcion is None:
+        return
+
+    manana = timezone.now().date() + timedelta(days=1)
+    if timezone.localtime(suscripcion.fecha_vencimiento).date() != manana:
+        return
+
+    ya_avisado = Notificacion.objects.filter(
+        usuario=empresa.usuario_dueno, tipo='PLAN_POR_VENCER', creado_en__date=timezone.now().date(),
+    ).exists()
+    if ya_avisado:
+        return
+
+    hora_vencimiento = timezone.localtime(suscripcion.fecha_vencimiento).strftime('%d/%m/%Y %H:%M')
+    Notificacion.objects.create(
+        usuario=empresa.usuario_dueno,
+        tipo='PLAN_POR_VENCER',
+        titulo='Tu plan vence pronto',
+        mensaje=f'Tu suscripción {suscripcion.plan.nombre} vence mañana ({hora_vencimiento}).',
+        enlace='/mi-empresa/suscripcion',
+    )
+
+
 class LoginView(TokenObtainPairView):
     """CU22: cada login exitoso queda registrado en la bitácora (usuario, fecha/hora, IP)."""
 
@@ -78,6 +115,9 @@ class LoginView(TokenObtainPairView):
             usuario = Usuario.objects.filter(email=request.data.get('email')).first()
             if usuario:
                 _log(request, 'LOGIN', 'usuario', usuario.id, usuario=usuario)
+                empresa = usuario.get_empresa()
+                if empresa:
+                    _verificar_aviso_vencimiento(empresa)
         return response
 
 
@@ -124,7 +164,10 @@ class GoogleAuthView(APIView):
 
 
 class SolicitarEmpresaView(CreateAPIView):
-    """CU01: un usuario autenticado solicita convertirse en empresa."""
+    """CU01: un usuario autenticado solicita convertirse en empresa con el
+    plan Prueba — se resuelve sola, sin admin de por medio: se crea de una
+    la cuenta de empresa (separada de la del comprador) y se le mandan las
+    credenciales por correo."""
 
     permission_classes = [IsAuthenticated]
     serializer_class = SolicitudEmpresaSerializer
@@ -134,8 +177,106 @@ class SolicitarEmpresaView(CreateAPIView):
         serializer.is_valid(raise_exception=True)
         solicitud = serializer.save()
 
+        correo_empresa = generar_correo_empresa(request.user.email)
+        crear_cuenta_empresa(
+            razon_social=solicitud.razon_social,
+            nit=solicitud.nit,
+            correo_empresa=correo_empresa,
+            plan=solicitud.plan,
+            documento_url=solicitud.documento_url,
+            codigo_referido=solicitud.codigo_referido,
+            solicitud=solicitud,
+        )
+        solicitud.estado = SolicitudEmpresa.Estado.APROBADA
+        solicitud.fecha_revision = timezone.now()
+        solicitud.save(update_fields=['estado', 'fecha_revision'])
+
         _log(request, 'SOLICITAR_EMPRESA', 'solicitud_empresa', solicitud.id)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(SolicitudEmpresaSerializer(solicitud).data, status=status.HTTP_201_CREATED)
+
+
+class SolicitarEmpresaCheckoutView(APIView):
+    """CU01: primer paso de la solicitud con plan Básico/Premium — crea la
+    orden de PayPal y la solicitud en PENDIENTE. La cuenta de empresa recién
+    se crea al confirmar el pago (SolicitarEmpresaConfirmarView)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        plan = get_object_or_404(Plan, id=request.data.get('plan_id'), estado=Plan.Estado.ACTIVO)
+        if plan.codigo == Plan.Codigo.PRUEBA:
+            return Response(
+                {'detail': 'El plan Prueba no requiere pago — usa /solicitudes-empresa/.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        razon_social = request.data.get('razon_social', '').strip()
+        nit = request.data.get('nit', '').strip()
+        if not razon_social or not nit:
+            return Response({'detail': 'razon_social y nit son obligatorios.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        monto_usd = (plan.precio_mensual / settings.TASA_CAMBIO_USD_BOB).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        try:
+            orden = paypal_client.crear_orden(monto_usd)
+        except PaypalError as exc:
+            return Response({'detail': str(exc), 'paypal': exc.detalle}, status=status.HTTP_502_BAD_GATEWAY)
+
+        solicitud = SolicitudEmpresa.objects.create(
+            usuario_solicitante=request.user,
+            razon_social=razon_social,
+            nit=nit,
+            documento_url=request.data.get('documento_url', ''),
+            codigo_referido=request.data.get('codigo_referido', ''),
+            plan=plan,
+            paypal_order_id=orden['id'],
+        )
+
+        _log(request, 'SOLICITAR_EMPRESA_CHECKOUT', 'solicitud_empresa', solicitud.id, {'plan': plan.nombre})
+        return Response(
+            {'solicitud_id': solicitud.id, 'paypal_order_id': orden['id'], 'monto_usd': str(monto_usd)},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class SolicitarEmpresaConfirmarView(APIView):
+    """CU01: segundo paso — captura el pago y recién ahí crea la cuenta de
+    empresa (separada) con las credenciales enviadas por correo."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, solicitud_id):
+        solicitud = get_object_or_404(
+            SolicitudEmpresa, id=solicitud_id, usuario_solicitante=request.user,
+            estado=SolicitudEmpresa.Estado.PENDIENTE,
+        )
+        paypal_order_id = request.data.get('paypal_order_id')
+        if not paypal_order_id or paypal_order_id != solicitud.paypal_order_id:
+            return Response({'detail': 'Falta o no coincide paypal_order_id.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            resultado = paypal_client.capturar_orden(paypal_order_id)
+        except PaypalError as exc:
+            return Response({'detail': str(exc), 'paypal': exc.detalle}, status=status.HTTP_502_BAD_GATEWAY)
+
+        if resultado.get('status') != 'COMPLETED':
+            return Response({'detail': 'PayPal no aprobó el pago.'}, status=status.HTTP_402_PAYMENT_REQUIRED)
+
+        correo_empresa = generar_correo_empresa(request.user.email)
+        usuario, empresa, _susc = crear_cuenta_empresa(
+            razon_social=solicitud.razon_social,
+            nit=solicitud.nit,
+            correo_empresa=correo_empresa,
+            plan=solicitud.plan,
+            documento_url=solicitud.documento_url,
+            codigo_referido=solicitud.codigo_referido,
+            solicitud=solicitud,
+        )
+        solicitud.estado = SolicitudEmpresa.Estado.APROBADA
+        solicitud.fecha_revision = timezone.now()
+        solicitud.save(update_fields=['estado', 'fecha_revision'])
+
+        _log(request, 'CONFIRMAR_PAGO_SOLICITUD_EMPRESA', 'solicitud_empresa', solicitud.id, {'paypal_order_id': paypal_order_id})
+        return Response({'detail': 'Pago confirmado. Revisa tu correo para las credenciales de tu empresa.', 'empresa_id': empresa.id})
 
 
 class ListaSolicitudesEmpresaView(ListAPIView):
@@ -359,7 +500,7 @@ class RegistroCompradorView(CreateAPIView):
     """Registro público: cualquiera puede crear su cuenta de comprador.
 
     Devuelve el JWT directamente (igual que el login) para no forzar un
-    segundo login inmediatamente después, que exigiría un segundo reCAPTCHA.
+    segundo login inmediatamente después.
     """
 
     permission_classes = [AllowAny]
@@ -620,6 +761,7 @@ class ListaEmpresasAdminView(ListAPIView):
             Empresa.objects.select_related('usuario_dueno', 'plan')
             .annotate(
                 _susc_estado=Subquery(ultima_suscripcion.values('estado')[:1]),
+                _susc_inicio=Subquery(ultima_suscripcion.values('fecha_inicio')[:1]),
                 _susc_vencimiento=Subquery(ultima_suscripcion.values('fecha_vencimiento')[:1]),
             )
             .order_by('-creado_en')
@@ -629,17 +771,17 @@ class ListaEmpresasAdminView(ListAPIView):
         if estado:
             queryset = queryset.filter(estado=estado)
 
-        hoy = timezone.now().date()
+        ahora = timezone.now()
         estado_suscripcion = self.request.query_params.get('estado_suscripcion')
         if estado_suscripcion == 'SOLICITANDO_SUSCRIPCION':
             queryset = queryset.filter(Q(plan__isnull=True) | Q(_susc_vencimiento__isnull=True))
         elif estado_suscripcion == 'ACTIVA':
             queryset = queryset.filter(
-                plan__isnull=False, _susc_estado=Suscripcion.Estado.ACTIVA, _susc_vencimiento__gte=hoy
+                plan__isnull=False, _susc_estado=Suscripcion.Estado.ACTIVA, _susc_vencimiento__gte=ahora
             )
         elif estado_suscripcion == 'EXPIRADA':
             queryset = queryset.filter(plan__isnull=False, _susc_vencimiento__isnull=False).exclude(
-                _susc_estado=Suscripcion.Estado.ACTIVA, _susc_vencimiento__gte=hoy
+                _susc_estado=Suscripcion.Estado.ACTIVA, _susc_vencimiento__gte=ahora
             )
 
         q = self.request.query_params.get('q')
@@ -647,6 +789,34 @@ class ListaEmpresasAdminView(ListAPIView):
             queryset = queryset.filter(Q(razon_social__icontains=q) | Q(nit__icontains=q))
 
         return queryset
+
+
+class CrearEmpresaDirectaAdminView(APIView):
+    """CU01: el SuperAdmin crea una cuenta de empresa directamente,
+    asignándole un plan, sin pasar por la solicitud (ni pago, ni admin
+    aprobando su propia solicitud) — usa el mismo servicio que el
+    autoservicio de CU01."""
+
+    permission_classes = [EsSuperAdmin]
+
+    def post(self, request):
+        razon_social = request.data.get('razon_social', '').strip()
+        nit = request.data.get('nit', '').strip()
+        correo_empresa = request.data.get('correo_empresa', '').strip()
+        if not razon_social or not nit or not correo_empresa:
+            return Response(
+                {'detail': 'razon_social, nit y correo_empresa son obligatorios.'}, status=status.HTTP_400_BAD_REQUEST
+            )
+        if Usuario.objects.filter(email=correo_empresa).exists():
+            return Response({'detail': 'Ya existe un usuario con ese correo.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        plan = get_object_or_404(Plan, id=request.data.get('plan_id'), estado=Plan.Estado.ACTIVO)
+        usuario, empresa, _susc = crear_cuenta_empresa(
+            razon_social=razon_social, nit=nit, correo_empresa=correo_empresa, plan=plan,
+        )
+
+        _log(request, 'CREAR_EMPRESA_DIRECTA_ADMIN', 'empresa', empresa.id, {'plan': plan.nombre})
+        return Response({'id': empresa.id, 'slug': empresa.slug}, status=status.HTTP_201_CREATED)
 
 
 class EditarEmpresaAdminView(APIView):

@@ -40,16 +40,9 @@ services:
         sync: false
       - key: DEFAULT_FROM_EMAIL
         sync: false
-      # Login con Google y reCAPTCHA (opcionales: si se dejan vacíos, esas
-      # dos validaciones quedan desactivadas en vez de romper el deploy).
+      # Login con Google (opcional: si se deja vacío, esa validación queda
+      # desactivada en vez de romper el deploy).
       - key: GOOGLE_CLIENT_ID
-        sync: false
-      - key: RECAPTCHA_SECRET_KEY
-        sync: false
-      # Mismo valor que MOBILE_APP_SECRET en Backend/.env y el que se
-      # compila dentro de la app Flutter (--dart-define). Si no coinciden,
-      # la app no puede saltar el reCAPTCHA y el login/registro le falla.
-      - key: MOBILE_APP_SECRET
         sync: false
       # Cloudinary (CU07): imágenes subidas por el admin/las empresas. Sin
       # esto, el storage cae a disco local — que Render borra en cada

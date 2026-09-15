@@ -221,19 +221,6 @@ FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:5173')
 GOOGLE_CLIENT_ID = env('GOOGLE_CLIENT_ID', default='')
 
 # ---------------------------------------------------------------------------
-# reCAPTCHA v2 ("no soy un robot") para login y registro. La clave secreta
-# se usa para verificar el token contra la API de Google (ver apps.core.utils).
-# ---------------------------------------------------------------------------
-RECAPTCHA_SECRET_KEY = env('RECAPTCHA_SECRET_KEY', default='')
-
-# Secreto compartido para que la app móvil (Flutter) se identifique como
-# cliente propio y salte el reCAPTCHA en login/registro: reCAPTCHA v2 es un
-# widget de navegador, no existe un equivalente nativo para resolverlo desde
-# la app. No reemplaza al reCAPTCHA en la web (que sigue exigiéndose igual);
-# solo evita bloquear al único otro cliente de confianza que tenemos.
-MOBILE_APP_SECRET = env('MOBILE_APP_SECRET', default='')
-
-# ---------------------------------------------------------------------------
 # Hugging Face Inference API (CU08): clasificación zero-shot de la imagen de
 # un producto contra los nombres de las categorías existentes, para sugerir
 # a cuál pertenece. Token gratuito de solo lectura, ver apps/catalogo/ia.py.

@@ -10,7 +10,7 @@ class PlanSerializer(serializers.ModelSerializer):
     class Meta:
         model = Plan
         fields = [
-            'id', 'nombre', 'precio_mensual', 'limite_productos',
+            'id', 'codigo', 'nombre', 'precio_mensual', 'duracion_dias', 'limite_productos',
             'incluye_live_commerce', 'incluye_ia', 'porcentaje_comision', 'estado',
         ]
         read_only_fields = fields
@@ -23,7 +23,7 @@ class PlanAdminSerializer(serializers.ModelSerializer):
     class Meta:
         model = Plan
         fields = [
-            'id', 'nombre', 'precio_mensual', 'limite_productos',
+            'id', 'codigo', 'nombre', 'precio_mensual', 'duracion_dias', 'limite_productos',
             'incluye_live_commerce', 'incluye_ia', 'porcentaje_comision', 'estado',
         ]
 

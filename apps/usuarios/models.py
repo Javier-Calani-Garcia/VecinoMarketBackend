@@ -123,6 +123,14 @@ class SolicitudEmpresa(BaseModel):
     razon_social = models.CharField(max_length=150)
     nit = models.CharField(max_length=30)
     documento_url = models.URLField(max_length=255, blank=True)
+    plan = models.ForeignKey(
+        'suscripciones.Plan', on_delete=models.PROTECT, null=True, blank=True, related_name='solicitudes_empresa',
+        help_text='CU01: plan elegido al solicitar. Nulo solo en solicitudes viejas, previas a esta funcionalidad.',
+    )
+    paypal_order_id = models.CharField(
+        max_length=50, blank=True,
+        help_text='CU01: orden de PayPal abierta para pagar un plan Básico/Premium (vacío para el plan Prueba).',
+    )
     estado = models.CharField(max_length=20, choices=Estado.choices, default=Estado.PENDIENTE)
     revisado_por_admin = models.ForeignKey(
         Usuario, on_delete=models.SET_NULL, null=True, blank=True, related_name='solicitudes_revisadas'
