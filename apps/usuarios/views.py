@@ -177,7 +177,7 @@ class SolicitarEmpresaView(CreateAPIView):
         serializer.is_valid(raise_exception=True)
         solicitud = serializer.save()
 
-        correo_empresa = generar_correo_empresa(request.user.email)
+        correo_empresa = generar_correo_empresa(solicitud.razon_social)
         crear_cuenta_empresa(
             razon_social=solicitud.razon_social,
             nit=solicitud.nit,
@@ -186,6 +186,7 @@ class SolicitarEmpresaView(CreateAPIView):
             documento_url=solicitud.documento_url,
             codigo_referido=solicitud.codigo_referido,
             solicitud=solicitud,
+            correo_recuperacion=request.user.email,
         )
         solicitud.estado = SolicitudEmpresa.Estado.APROBADA
         solicitud.fecha_revision = timezone.now()
@@ -261,7 +262,7 @@ class SolicitarEmpresaConfirmarView(APIView):
         if resultado.get('status') != 'COMPLETED':
             return Response({'detail': 'PayPal no aprobó el pago.'}, status=status.HTTP_402_PAYMENT_REQUIRED)
 
-        correo_empresa = generar_correo_empresa(request.user.email)
+        correo_empresa = generar_correo_empresa(solicitud.razon_social)
         usuario, empresa, _susc = crear_cuenta_empresa(
             razon_social=solicitud.razon_social,
             nit=solicitud.nit,
@@ -270,6 +271,7 @@ class SolicitarEmpresaConfirmarView(APIView):
             documento_url=solicitud.documento_url,
             codigo_referido=solicitud.codigo_referido,
             solicitud=solicitud,
+            correo_recuperacion=request.user.email,
         )
         solicitud.estado = SolicitudEmpresa.Estado.APROBADA
         solicitud.fecha_revision = timezone.now()

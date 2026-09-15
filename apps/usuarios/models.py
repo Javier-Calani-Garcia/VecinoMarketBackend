@@ -20,6 +20,11 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
         BLOQUEADO = 'BLOQUEADO', 'Bloqueado'
 
     email = models.EmailField(max_length=150, unique=True)
+    # CU01: para cuentas de EMPRESA, `email` es un identificador generado
+    # (no una casilla real — ver generar_correo_empresa), así que los avisos
+    # (credenciales, reset de password) van a este correo real en su lugar.
+    # Vacío para COMPRADOR/EMPLEADO/ADMIN, donde `email` ya es real.
+    correo_recuperacion = models.EmailField(max_length=150, blank=True)
     nombre = models.CharField(max_length=100)
     apellido = models.CharField(max_length=100, blank=True)
     telefono = models.CharField(max_length=20, blank=True)

@@ -367,7 +367,7 @@ class SolicitarResetPasswordSerializer(serializers.Serializer):
                 'Si no fuiste tú, puedes ignorar este correo — tu contraseña actual sigue siendo válida.'
             ),
             settings.DEFAULT_FROM_EMAIL,
-            [usuario.email],
+            [usuario.correo_recuperacion or usuario.email],
             fail_silently=True,
         )
         return usuario

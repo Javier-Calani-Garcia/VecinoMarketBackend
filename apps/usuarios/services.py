@@ -19,17 +19,18 @@ from .models import Empresa, Usuario
 _ALFABETO_PASSWORD = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789'
 
 
-def generar_correo_empresa(email_comprador):
-    """juan@gmail.com -> juan+empresa@gmail.com. Si ya existe un Usuario con
-    ese alias (poco probable, pero el comprador podría solicitar más de una
-    empresa), agrega un sufijo numérico hasta encontrar uno libre."""
-    local, _, dominio = email_comprador.partition('@')
-    candidato = f'{local}+empresa@{dominio}'
-    sufijo = 2
-    while Usuario.objects.filter(email=candidato).exists():
-        candidato = f'{local}+empresa{sufijo}@{dominio}'
-        sufijo += 1
-    return candidato
+def generar_correo_empresa(razon_social):
+    """"Mi Tienda S.R.L." -> mitiendasrl+4821@vecinomarket.com. No es una
+    casilla real (no existe un servidor de correo en vecinomarket.com); es
+    solo el identificador de login de la cuenta EMPRESA, con un sufijo
+    numérico para que dos empresas con nombre parecido no choquen. Los
+    avisos de verdad van al correo_recuperacion (ver crear_cuenta_empresa)."""
+    base = slugify(razon_social).replace('-', '') or 'empresa'
+    while True:
+        sufijo = get_random_string(4, allowed_chars='0123456789')
+        candidato = f'{base}+{sufijo}@vecinomarket.com'
+        if not Usuario.objects.filter(email=candidato).exists():
+            return candidato
 
 
 def _generar_slug_empresa(razon_social):
@@ -42,12 +43,15 @@ def _generar_slug_empresa(razon_social):
     return slug
 
 
-def crear_cuenta_empresa(razon_social, nit, correo_empresa, plan, documento_url='', codigo_referido='', solicitud=None):
+def crear_cuenta_empresa(razon_social, nit, correo_empresa, plan, documento_url='', codigo_referido='', solicitud=None, correo_recuperacion=''):
     """Crea la cuenta de empresa completa y le manda las credenciales por
-    correo. Devuelve (usuario, empresa, suscripcion)."""
+    correo (a correo_recuperacion si se indica — correo_empresa no es una
+    casilla real, ver generar_correo_empresa). Devuelve (usuario, empresa,
+    suscripcion)."""
     password = get_random_string(12, allowed_chars=_ALFABETO_PASSWORD)
     usuario = Usuario.objects.create_user(
         email=correo_empresa, password=password, nombre=razon_social, rol=Usuario.Rol.EMPRESA,
+        correo_recuperacion=correo_recuperacion,
     )
 
     referente = None
@@ -87,12 +91,13 @@ def crear_cuenta_empresa(razon_social, nit, correo_empresa, plan, documento_url=
             f'Tu cuenta de empresa "{razon_social}" ya está activa con el plan {plan.nombre}.\n\n'
             'Estas son tus credenciales de acceso:\n'
             f'  Correo: {correo_empresa}\n'
-            f'  Contraseña: {password}\n\n'
-            f'Ingresa aquí: {settings.FRONTEND_URL}/login\n\n'
-            'Te recomendamos cambiar la contraseña luego de tu primer ingreso.'
+            f'  Contraseña temporal: {password}\n\n'
+            'Esta contraseña es temporal: por seguridad, cámbiala desde tu panel de '
+            'empresa dentro de los próximos 30 días.\n\n'
+            f'Ingresa aquí: {settings.FRONTEND_URL}/login'
         ),
         settings.DEFAULT_FROM_EMAIL,
-        [correo_empresa],
+        [correo_recuperacion or correo_empresa],
         fail_silently=True,
     )
 
