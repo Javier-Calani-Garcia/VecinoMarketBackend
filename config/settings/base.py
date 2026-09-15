@@ -192,14 +192,24 @@ CORS_ALLOW_ALL_ORIGINS = env.bool('CORS_ALLOW_ALL_ORIGINS', default=True)
 CORS_EXPOSE_HEADERS = ['Content-Disposition']
 
 # ---------------------------------------------------------------------------
-# Email (recuperación de contraseña, CU/T010). Vía Gmail SMTP con contraseña
-# de aplicación. En un entorno sin EMAIL_HOST_USER configurado, cae al
-# backend de consola (imprime el correo en la terminal en vez de enviarlo).
+# Email (recuperación de contraseña, CU01, CU/T010). Preferimos la Gmail API
+# (HTTPS) sobre SMTP porque el plan gratuito de Render bloquea el puerto
+# SMTP saliente — ver apps/core/gmail_email_backend.py y
+# scripts/generar_refresh_token_gmail.py para generar GMAIL_API_REFRESH_TOKEN.
+# Sin esas 3 variables, cae a SMTP con contraseña de aplicación (sirve para
+# correr local); sin nada configurado, cae al backend de consola (imprime el
+# correo en la terminal en vez de enviarlo).
 # ---------------------------------------------------------------------------
+GMAIL_API_CLIENT_ID = env('GMAIL_API_CLIENT_ID', default='')
+GMAIL_API_CLIENT_SECRET = env('GMAIL_API_CLIENT_SECRET', default='')
+GMAIL_API_REFRESH_TOKEN = env('GMAIL_API_REFRESH_TOKEN', default='')
+
 EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
 
-if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
+if GMAIL_API_CLIENT_ID and GMAIL_API_CLIENT_SECRET and GMAIL_API_REFRESH_TOKEN:
+    EMAIL_BACKEND = 'apps.core.gmail_email_backend.GmailApiBackend'
+elif EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
     EMAIL_HOST = env('EMAIL_HOST', default='smtp.gmail.com')
     EMAIL_PORT = env.int('EMAIL_PORT', default=587)

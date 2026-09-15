@@ -32,11 +32,17 @@ services:
         sync: false
       - key: CSRF_TRUSTED_ORIGINS
         sync: false
-      # Gmail para recuperación de contraseña (opcional: sin esto, los
-      # correos solo quedan en los logs del servicio, no se envían).
-      - key: EMAIL_HOST_USER
+      # Credenciales de empresa y recuperación de contraseña, vía Gmail API
+      # (HTTPS) — Render bloquea el puerto SMTP saliente en el plan free,
+      # así que EMAIL_HOST_USER/PASSWORD (SMTP) NO funcionan acá, solo sirven
+      # para correr local. Generar el refresh token con
+      # scripts/generar_refresh_token_gmail.py. Sin las 3, los correos solo
+      # quedan en los logs del servicio, no se envían.
+      - key: GMAIL_API_CLIENT_ID
         sync: false
-      - key: EMAIL_HOST_PASSWORD
+      - key: GMAIL_API_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_API_REFRESH_TOKEN
         sync: false
       - key: DEFAULT_FROM_EMAIL
         sync: false
