@@ -474,11 +474,18 @@ class IniciarCheckoutView(APIView):
             return Response({'detail': str(exc), 'paypal': exc.detalle}, status=status.HTTP_502_BAD_GATEWAY)
 
         _log(request, 'INICIAR_CHECKOUT', orden.id, {'monto_total': str(monto_total), 'monto_usd': str(monto_usd)}, entidad_afectada='orden_compra')
+        # La app móvil no tiene el SDK de JS de PayPal (eso es exclusivo del
+        # navegador) -- abre este link de aprobación en un WebView en vez del
+        # popup. La web lo ignora, así que no le afecta.
+        enlace_aprobacion = next(
+            (l['href'] for l in paypal_orden.get('links', []) if l.get('rel') == 'approve'), None
+        )
         return Response({
             'orden_compra_id': orden.id,
             'paypal_order_id': paypal_orden['id'],
             'requiere_popup_paypal': payment_token_id is None,
             'monto_usd': str(monto_usd),
+            'enlace_aprobacion_paypal': enlace_aprobacion,
         }, status=status.HTTP_201_CREATED)
 
 
