@@ -417,7 +417,7 @@ class PermisoEmpleadoPropioView(APIView):
 # =====================================================================
 
 class ListaEmpleadosAdminView(ListAPIView):
-    permission_classes = [EsAdmin]
+    permission_classes = [EsSuperAdmin]
     serializer_class = EmpleadoAdminSerializer
     pagination_class = AdminPagination
 
@@ -444,7 +444,7 @@ class ListaEmpleadosAdminView(ListAPIView):
 
 
 class DesactivarEmpleadoAdminView(APIView):
-    permission_classes = [EsAdmin]
+    permission_classes = [EsSuperAdmin]
 
     def post(self, request, empleado_id):
         empleado = get_object_or_404(Empleado, id=empleado_id)
@@ -463,7 +463,7 @@ class DesactivarEmpleadoAdminView(APIView):
 
 
 class ReactivarEmpleadoAdminView(APIView):
-    permission_classes = [EsAdmin]
+    permission_classes = [EsSuperAdmin]
 
     def post(self, request, empleado_id):
         empleado = get_object_or_404(Empleado, id=empleado_id)
@@ -482,7 +482,7 @@ class PermisoEmpleadoAdminView(APIView):
     """CU09: asigna (POST) o quita (DELETE) un permiso del catálogo a un
     empleado — define a qué partes del panel de su empresa tiene acceso."""
 
-    permission_classes = [EsAdmin]
+    permission_classes = [EsSuperAdmin]
 
     def post(self, request, empleado_id, permiso_id):
         empleado = get_object_or_404(Empleado, id=empleado_id)

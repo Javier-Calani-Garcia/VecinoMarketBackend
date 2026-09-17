@@ -31,6 +31,19 @@ class EsEmpresa(BasePermission):
         return bool(user and user.is_authenticated and user.es_empresa())
 
 
+class EsEmpresaOEmpleado(BasePermission):
+    """Dueño de una empresa o empleado suyo (sin exigir un permiso puntual
+    todavía) — para vistas que exponen catálogos/menús que luego cada quien
+    filtra según lo que sí tiene permitido, como el catálogo de reportes
+    dinámicos."""
+
+    message = 'Solo una empresa o uno de sus empleados puede realizar esta acción.'
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and (user.es_empresa() or user.es_empleado()))
+
+
 class EsComprador(BasePermission):
     """CU13: solo el comprador dueño de sus propias direcciones."""
 

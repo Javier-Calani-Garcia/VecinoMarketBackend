@@ -198,10 +198,11 @@ class RegistrarUsuarioAdminSerializer(serializers.Serializer):
 class UsuarioSerializer(serializers.ModelSerializer):
     empresa_id = serializers.SerializerMethodField()
     empresa_slug = serializers.SerializerMethodField()
+    permisos = serializers.SerializerMethodField()
 
     class Meta:
         model = Usuario
-        fields = ['id', 'email', 'nombre', 'apellido', 'telefono', 'rol', 'estado', 'empresa_id', 'empresa_slug', 'fecha_registro']
+        fields = ['id', 'email', 'nombre', 'apellido', 'telefono', 'rol', 'estado', 'empresa_id', 'empresa_slug', 'fecha_registro', 'permisos']
         read_only_fields = fields
 
     def get_empresa_slug(self, obj):
@@ -211,6 +212,14 @@ class UsuarioSerializer(serializers.ModelSerializer):
     def get_empresa_id(self, obj):
         empresa = obj.get_empresa()
         return empresa.id if empresa else None
+
+    def get_permisos(self, obj):
+        """CU09: para un EMPLEADO, los codigos de permiso que la empresa le asigno
+        (EmpleadoPermiso). El frontend los usa para mostrar solo lo que puede usar.
+        Para EMPRESA (dueno) no aplica: siempre tiene acceso total (ver TienePermisoEmpleado)."""
+        if not obj.es_empleado():
+            return None
+        return list(obj.empleado.permisos.values_list('permiso__codigo', flat=True))
 
 
 class ActualizarPerfilSerializer(serializers.ModelSerializer):

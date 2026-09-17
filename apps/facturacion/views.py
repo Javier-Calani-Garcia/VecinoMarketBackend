@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.auditoria.models import LogAuditoria
-from apps.core.exportadores import FORMATOS_VALIDOS, exportar_reporte
+from apps.core.exportadores import responder_exportacion
 from apps.core.utils import get_client_ip
 from apps.usuarios.permissions import EsAdmin, TienePermisoEmpleado
 
@@ -260,27 +260,18 @@ def _secciones_factura(factura):
     return secciones
 
 
-def _validar_formato_factura(request):
-    formato = request.query_params.get('formato', 'pdf').lower()
-    if formato not in FORMATOS_VALIDOS:
-        return None, Response({'detail': 'Formato inválido. Usa csv, xlsx o pdf.'}, status=status.HTTP_400_BAD_REQUEST)
-    return formato, None
-
-
 class ExportarFacturaAdminView(APIView):
     """CU26: el SuperAdmin exporta cualquier factura como proforma
-    (csv/xlsx/pdf) — para las de comisión, incluye el detalle de qué se
-    vendió y a qué precio, no solo el monto agregado."""
+    (csv/xlsx/pdf/html, o al correo con ?formato=email) — para las de
+    comisión, incluye el detalle de qué se vendió y a qué precio, no solo
+    el monto agregado."""
 
     permission_classes = [EsAdmin]
 
     def get(self, request, factura_id):
-        formato, error = _validar_formato_factura(request)
-        if error:
-            return error
         factura = get_object_or_404(Factura.objects.select_related('empresa'), id=factura_id)
-        return exportar_reporte(
-            formato, f'factura-{factura.id}',
+        return responder_exportacion(
+            request, f'factura-{factura.id}',
             f'Factura FAC-{factura.id:06d} · {factura.empresa.razon_social}',
             f'VecinoMarket · Generado el {timezone.now().strftime("%d/%m/%Y %H:%M")}',
             _secciones_factura(factura),
@@ -294,14 +285,11 @@ class ExportarMiFacturaView(APIView):
     permiso_requerido = 'gestionar_facturacion'
 
     def get(self, request, factura_id):
-        formato, error = _validar_formato_factura(request)
-        if error:
-            return error
         factura = get_object_or_404(
             Factura.objects.select_related('empresa'), id=factura_id, empresa=request.user.get_empresa()
         )
-        return exportar_reporte(
-            formato, f'factura-{factura.id}',
+        return responder_exportacion(
+            request, f'factura-{factura.id}',
             f'Factura FAC-{factura.id:06d} · {factura.empresa.razon_social}',
             f'VecinoMarket · Generado el {timezone.now().strftime("%d/%m/%Y %H:%M")}',
             _secciones_factura(factura),

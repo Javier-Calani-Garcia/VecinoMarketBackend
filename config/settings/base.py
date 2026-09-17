@@ -4,6 +4,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import environ
+from corsheaders.defaults import default_headers
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -190,6 +191,10 @@ CORS_ALLOW_ALL_ORIGINS = env.bool('CORS_ALLOW_ALL_ORIGINS', default=True)
 # reportes (CU18/CU19) — por defecto el navegador oculta este header en
 # respuestas cross-origin aunque el backend lo mande.
 CORS_EXPOSE_HEADERS = ['Content-Disposition']
+# X-Developer-Key (CU22, bitácora confidencial) no está en la lista default
+# de django-cors-headers — sin esto, el navegador bloquea el header antes
+# de que llegue a Django (falla silenciosa, sin status code que capturar).
+CORS_ALLOW_HEADERS = list(default_headers) + ['x-developer-key']
 
 # ---------------------------------------------------------------------------
 # Email (recuperación de contraseña, CU01, CU/T010). Preferimos la Gmail API
@@ -229,6 +234,13 @@ FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:5173')
 # para verificar la firma del ID token que manda el navegador.
 # ---------------------------------------------------------------------------
 GOOGLE_CLIENT_ID = env('GOOGLE_CLIENT_ID', default='')
+
+# ---------------------------------------------------------------------------
+# CU22: llave de desarrollador para la bitácora — confidencial incluso para
+# el administrador de BD (ver apps/auditoria/permissions.py). Sin esta
+# variable configurada, la bitácora queda inaccesible para todos.
+# ---------------------------------------------------------------------------
+DEVELOPER_KEY = env('DEVELOPER_KEY', default='')
 
 # ---------------------------------------------------------------------------
 # Hugging Face Inference API (CU08): clasificación zero-shot de la imagen de

@@ -50,6 +50,10 @@ services:
       # desactivada en vez de romper el deploy).
       - key: GOOGLE_CLIENT_ID
         sync: false
+      # CU22: llave de desarrollador para poder ver la bitácora — sin esto
+      # configurado, la bitácora queda inaccesible para todos.
+      - key: DEVELOPER_KEY
+        sync: false
       # Cloudinary (CU07): imágenes subidas por el admin/las empresas. Sin
       # esto, el storage cae a disco local — que Render borra en cada
       # redeploy. Sacar las 3 del dashboard de cloudinary.com.

@@ -1,17 +1,19 @@
 from django.db import connection
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.auditoria.models import LogAuditoria
-from apps.core.exportadores import FORMATOS_VALIDOS, exportar_reporte
+from apps.core.exportadores import responder_exportacion
 from apps.core.utils import get_client_ip
 from apps.pedidos.models import Pedido
 from apps.usuarios.models import Comprador, Empresa
-from apps.usuarios.permissions import EsAdmin, EsComprador, TienePermisoEmpleado
+from apps.usuarios.permissions import EsAdmin, EsComprador, EsEmpresaOEmpleado, TienePermisoEmpleado
 
+from . import reportes_dinamicos
 from .models import RecomendacionIA, Valoracion
 from .serializers import RecomendacionIASerializer, ValoracionSerializer
 
@@ -157,6 +159,10 @@ class EliminarValoracionAdminView(APIView):
         _log(request, 'MODERAR_VALORACION', valoracion_id, {'empresa_id': valoracion.empresa_id})
         valoracion.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+
+
 
 
 class ListaMisRecomendacionesView(generics.ListAPIView):
@@ -450,29 +456,18 @@ def _secciones_dashboard_admin(datos):
     ]
 
 
-def _validar_formato(request):
-    formato = request.query_params.get('formato', 'pdf').lower()
-    if formato not in FORMATOS_VALIDOS:
-        return None, Response(
-            {'detail': 'Formato inválido. Usa csv, xlsx o pdf.'}, status=status.HTTP_400_BAD_REQUEST
-        )
-    return formato, None
-
-
 class DashboardEmpresaExportarView(APIView):
-    """CU18: la empresa exporta su propio dashboard a csv/xlsx/pdf."""
+    """CU18: la empresa exporta su propio dashboard a csv/xlsx/pdf/html, o
+    lo manda a su correo (?formato=email)."""
 
     permission_classes = [TienePermisoEmpleado]
     permiso_requerido = 'ver_reportes'
 
     def get(self, request):
-        formato, error = _validar_formato(request)
-        if error:
-            return error
         empresa = request.user.get_empresa()
         datos = _dashboard_empresa(empresa.id)
-        return exportar_reporte(
-            formato, f'reporte_{empresa.slug}',
+        return responder_exportacion(
+            request, f'reporte_{empresa.slug}',
             f'Reporte de {empresa.razon_social}',
             f'VecinoMarket · Generado el {timezone.now().strftime("%d/%m/%Y %H:%M")}',
             _secciones_dashboard_empresa(datos),
@@ -485,13 +480,10 @@ class DashboardEmpresaAdminExportarView(APIView):
     permission_classes = [EsAdmin]
 
     def get(self, request, empresa_id):
-        formato, error = _validar_formato(request)
-        if error:
-            return error
         empresa = get_object_or_404(Empresa, id=empresa_id)
         datos = _dashboard_empresa(empresa.id)
-        return exportar_reporte(
-            formato, f'reporte_{empresa.slug}',
+        return responder_exportacion(
+            request, f'reporte_{empresa.slug}',
             f'Reporte de {empresa.razon_social}',
             f'VecinoMarket · Generado el {timezone.now().strftime("%d/%m/%Y %H:%M")}',
             _secciones_dashboard_empresa(datos),
@@ -504,13 +496,118 @@ class DashboardAdminExportarView(APIView):
     permission_classes = [EsAdmin]
 
     def get(self, request):
-        formato, error = _validar_formato(request)
-        if error:
-            return error
         datos = _dashboard_admin()
-        return exportar_reporte(
-            formato, 'reporte_administrativo',
+        return responder_exportacion(
+            request, 'reporte_administrativo',
             'Reporte administrativo de VecinoMarket',
             f'Generado el {timezone.now().strftime("%d/%m/%Y %H:%M")}',
             _secciones_dashboard_admin(datos),
+        )
+
+
+# =====================================================================
+# Punto 5 (Sprint_2, "Reportes personalizables"): reportes dinámicos.
+# A diferencia del dashboard de arriba (siempre las mismas 3 tablas), aquí
+# el usuario elige el dataset, las columnas, el rango de fechas y filtros
+# extra en tiempo real (ver apps/reportes/reportes_dinamicos.py).
+# =====================================================================
+
+def _filtros_extra_desde_query(request):
+    return {k[len('filtro_'):]: v for k, v in request.query_params.items() if k.startswith('filtro_')}
+
+
+class CatalogoReportesDinamicosView(APIView):
+    """CU18: catálogo de datasets/columnas/filtros disponibles para armar un
+    reporte -- recortado a lo que el usuario (dueño o empleado) tiene
+    permiso real de ver, igual que el menú 'Mi empresa' del frontend."""
+
+    permission_classes = [EsEmpresaOEmpleado]
+
+    def get(self, request):
+        user = request.user
+        datasets = reportes_dinamicos.catalogo()
+        if user.es_empleado():
+            empleado = getattr(user, 'empleado', None)
+            codigos = set(empleado.permisos.values_list('permiso__codigo', flat=True)) if empleado else set()
+            datasets = [d for d in datasets if d['permiso'] in codigos]
+        return Response(datasets)
+
+
+class GenerarReporteDinamicoView(APIView):
+    """CU18: genera/exporta el reporte que el usuario armó (dataset +
+    columnas + rango de fechas + filtros), acotado a su propia empresa."""
+
+    permission_classes = [EsEmpresaOEmpleado]
+
+    def get(self, request):
+        dataset_key = request.query_params.get('dataset')
+        cfg = reportes_dinamicos.REGISTRY.get(dataset_key)
+        if not cfg:
+            return Response({'detail': 'Dataset inválido.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = request.user
+        if user.es_empleado():
+            empleado = getattr(user, 'empleado', None)
+            tiene = bool(empleado) and empleado.permisos.filter(permiso__codigo=cfg['permiso']).exists()
+            if not tiene:
+                return Response({'detail': 'No tienes permiso para este reporte.'}, status=status.HTTP_403_FORBIDDEN)
+
+        empresa = user.get_empresa()
+        columnas = [c for c in request.query_params.get('columnas', '').split(',') if c]
+        fecha_inicio = parse_date(request.query_params.get('fecha_inicio') or '')
+        fecha_fin = parse_date(request.query_params.get('fecha_fin') or '')
+
+        headers, filas = reportes_dinamicos.generar(
+            dataset_key, columnas, empresa_id=empresa.id,
+            fecha_inicio=fecha_inicio, fecha_fin=fecha_fin,
+            filtros_extra=_filtros_extra_desde_query(request),
+        )
+        return responder_exportacion(
+            request, f'reporte_{dataset_key}_{empresa.slug}',
+            f'{cfg["etiqueta"]} · {empresa.razon_social}',
+            f'VecinoMarket · Generado el {timezone.now().strftime("%d/%m/%Y %H:%M")}',
+            [{'titulo': cfg['etiqueta'], 'headers': headers, 'filas': filas}],
+        )
+
+
+class CatalogoReportesDinamicosAdminView(APIView):
+    """CU19: mismo catálogo, pero completo (incluye el dataset 'Empresas',
+    exclusivo de plataforma) para el SuperAdmin/Admin."""
+
+    permission_classes = [EsAdmin]
+
+    def get(self, request):
+        return Response(reportes_dinamicos.catalogo(incluir_admin_extra=True))
+
+
+class GenerarReporteDinamicoAdminView(APIView):
+    """CU19: igual que la vista de empresa, pero sin acotar a un tenant --
+    o acotado a una empresa puntual si se manda ?empresa=<id>."""
+
+    permission_classes = [EsAdmin]
+
+    def get(self, request):
+        dataset_key = request.query_params.get('dataset')
+        registro = dict(reportes_dinamicos.REGISTRY)
+        registro.update(reportes_dinamicos.REGISTRY_ADMIN_EXTRA)
+        cfg = registro.get(dataset_key)
+        if not cfg:
+            return Response({'detail': 'Dataset inválido.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        empresa_id = request.query_params.get('empresa') or None
+        columnas = [c for c in request.query_params.get('columnas', '').split(',') if c]
+        fecha_inicio = parse_date(request.query_params.get('fecha_inicio') or '')
+        fecha_fin = parse_date(request.query_params.get('fecha_fin') or '')
+
+        headers, filas = reportes_dinamicos.generar(
+            dataset_key, columnas, empresa_id=empresa_id,
+            fecha_inicio=fecha_inicio, fecha_fin=fecha_fin,
+            filtros_extra=_filtros_extra_desde_query(request),
+            incluir_admin_extra=True,
+        )
+        return responder_exportacion(
+            request, f'reporte_{dataset_key}_admin',
+            f'{cfg["etiqueta"]} · Plataforma',
+            f'VecinoMarket · Generado el {timezone.now().strftime("%d/%m/%Y %H:%M")}',
+            [{'titulo': cfg['etiqueta'], 'headers': headers, 'filas': filas}],
         )

@@ -1,6 +1,8 @@
 from django.urls import path
 
 from .views import (
+    CatalogoReportesDinamicosAdminView,
+    CatalogoReportesDinamicosView,
     DashboardAdminExportarView,
     DashboardAdminView,
     DashboardEmpresaAdminExportarView,
@@ -10,6 +12,8 @@ from .views import (
     EditarEliminarMiValoracionView,
     EliminarValoracionAdminView,
     GenerarMisRecomendacionesView,
+    GenerarReporteDinamicoAdminView,
+    GenerarReporteDinamicoView,
     ListaCrearMisValoracionesView,
     ListaEmpresasDashboardAdminView,
     ListaMisRecomendacionesView,
@@ -43,4 +47,11 @@ urlpatterns = [
     path('admin/dashboard-empresas/', ListaEmpresasDashboardAdminView.as_view(), name='admin-dashboard-empresas'),
     path('admin/dashboard-empresas/<int:empresa_id>/', DashboardEmpresaAdminView.as_view(), name='admin-dashboard-empresa-detalle'),
     path('admin/dashboard-empresas/<int:empresa_id>/exportar/', DashboardEmpresaAdminExportarView.as_view(), name='admin-dashboard-empresa-exportar'),
+
+    # Punto 5 (Sprint_2): reportes dinámicos -- el usuario elige dataset,
+    # columnas, rango de fechas y filtros en vez de un reporte fijo.
+    path('reportes-dinamicos/catalogo/', CatalogoReportesDinamicosView.as_view(), name='reportes-dinamicos-catalogo'),
+    path('reportes-dinamicos/generar/', GenerarReporteDinamicoView.as_view(), name='reportes-dinamicos-generar'),
+    path('admin/reportes-dinamicos/catalogo/', CatalogoReportesDinamicosAdminView.as_view(), name='admin-reportes-dinamicos-catalogo'),
+    path('admin/reportes-dinamicos/generar/', GenerarReporteDinamicoAdminView.as_view(), name='admin-reportes-dinamicos-generar'),
 ]
