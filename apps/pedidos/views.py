@@ -404,6 +404,10 @@ class IniciarCheckoutView(APIView):
         items = request.data.get('items') or []
         entregas = request.data.get('entregas') or {}
         payment_token_id = request.data.get('payment_token_id')
+        # La app movil manda esto para recibir de vuelta un deep link propio
+        # tras aprobar el pago en el Custom Tab (ver PaypalWebviewScreen en
+        # Flutter) -- la web no lo manda, su SDK de JS no lo necesita.
+        plataforma = request.data.get('plataforma')
 
         if not items:
             return Response({'detail': 'El carrito está vacío.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -467,7 +471,14 @@ class IniciarCheckoutView(APIView):
                             raise ValueError(f'"{it["producto"].nombre}" ya no tiene suficiente stock.')
 
                 monto_usd = (monto_total / settings.TASA_CAMBIO_USD_BOB).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                paypal_orden = paypal_client.crear_orden(monto_usd, payment_token_id)
+                if plataforma == 'movil':
+                    paypal_orden = paypal_client.crear_orden(
+                        monto_usd, payment_token_id,
+                        return_url='vecinomarket://pago-exitoso',
+                        cancel_url='vecinomarket://pago-cancelado',
+                    )
+                else:
+                    paypal_orden = paypal_client.crear_orden(monto_usd, payment_token_id)
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except PaypalError as exc:

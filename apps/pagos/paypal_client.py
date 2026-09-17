@@ -122,12 +122,19 @@ def eliminar_payment_token(payment_token_id):
     _request('DELETE', f'/v3/vault/payment-tokens/{payment_token_id}')
 
 
-def crear_orden(monto_usd, payment_token_id=None):
+def crear_orden(monto_usd, payment_token_id=None, return_url=None, cancel_url=None):
     """POST /v2/checkout/orders — intent=CAPTURE. Si hay payment_token_id
     cobra directo con la cuenta PayPal guardada del comprador (sin volver
     a pasar por el popup); si no, el frontend abre el popup estándar de
     PayPal (createPayPalOneTimePaymentSession) contra este order_id antes
-    de capturar."""
+    de capturar.
+
+    return_url/cancel_url: solo los usa la app móvil (ver
+    apps/pedidos/views.py::IniciarCheckoutView) para que, tras aprobar el
+    pago en el Custom Tab, PayPal redirija de vuelta a un deep link de la
+    app en vez de dejar al comprador en una pantalla de PayPal sin salida.
+    El SDK de JS de la web (Web SDK v6, popup) maneja su propio puente y no
+    depende de esto -- pasarlo no le afecta."""
     payload = {
         'intent': 'CAPTURE',
         'purchase_units': [{'amount': {'currency_code': 'USD', 'value': f'{monto_usd:.2f}'}}],
@@ -136,6 +143,8 @@ def crear_orden(monto_usd, payment_token_id=None):
         payload['payment_source'] = {
             'token': {'id': payment_token_id, 'type': 'PAYMENT_METHOD_TOKEN'},
         }
+    elif return_url and cancel_url:
+        payload['application_context'] = {'return_url': return_url, 'cancel_url': cancel_url}
     return _request('POST', '/v2/checkout/orders', json=payload, idempotency_key=str(uuid.uuid4()))
 
 
