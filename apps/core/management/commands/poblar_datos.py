@@ -14,7 +14,7 @@ from decimal import Decimal
 
 from django.contrib.gis.geos import Point
 from django.core.management.base import BaseCommand
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from apps.catalogo.models import Categoria, CategorizacionIALog, Producto, ProductoImagen
@@ -508,6 +508,20 @@ class Command(BaseCommand):
                 )
 
             pedidos.append((pedido, comprador))
+
+        # Estos numero_pedido son fijos (VM-100001, VM-100002, ...) a propósito,
+        # para que re-correr este comando sea idempotente (get_or_create de
+        # arriba). Pero eso deja a seq_numero_pedido -- la que sí usa el
+        # checkout real, ver fn_generar_numero_pedido() -- sin enterarse de
+        # que esos números ya están tomados, y tarde o temprano un pedido real
+        # choca con uno sembrado (IntegrityError). Sincronizarla acá evita esa
+        # colisión sin sacrificar la idempotencia del sembrado.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT setval('seq_numero_pedido', "
+                "GREATEST(100001, (SELECT COALESCE(MAX(SUBSTRING(numero_pedido FROM '[0-9]+$')::bigint), 100000) "
+                "FROM pedidos_pedido) + 1), false)"
+            )
 
         self.stdout.write(f'Pedidos: {len(pedidos)}')
         return pedidos
